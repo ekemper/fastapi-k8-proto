@@ -1,0 +1,178 @@
+from typing import Dict, Any, List, Optional, Tuple
+import re
+import logging
+from html import escape
+from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
+
+from app.models.organization import Organization
+from app.schemas.organization import OrganizationCreate, OrganizationUpdate
+
+
+logger = logging.getLogger(__name__)
+
+
+class OrganizationService:
+    """Service for managing organization business logic."""
+    
+    def sanitize_input(self, data: dict) -> dict:
+        """Sanitize input data to prevent XSS and other attacks."""
+        sanitized = {}
+        for key, value in data.items():
+            if isinstance(value, str):
+                # Remove any HTML tags
+                value = re.sub(r'<[^>]+>', '', value)
+                # Escape HTML special characters
+                value = escape(value)
+                # Remove any control characters
+                value = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', value)
+                # Trim whitespace
+                value = value.strip()
+            sanitized[key] = value
+        return sanitized
+
+    def validate_organization_data(self, data: dict) -> Tuple[bool, str]:
+        """Validate organization data."""
+        # Only validate fields that are present in the update
+        if 'name' in data:
+            if not data['name']:
+                return False, 'Name is required'
+            if len(data['name'].strip()) < 3:
+                return False, 'Name must be at least 3 characters long'
+        
+        if 'description' in data:
+            if not data['description']:
+                return False, 'Description is required'
+        
+        return True, ''
+
+    async def create_organization(self, org_data: OrganizationCreate, db: Session) -> Dict[str, Any]:
+        """Create a new organization."""
+        try:
+            logger.info(f'Creating organization: {org_data.name}')
+            
+            # Convert Pydantic model to dict
+            data = org_data.model_dump()
+            
+            # Sanitize input
+            sanitized_data = self.sanitize_input(data)
+            
+            # Additional validation
+            if not sanitized_data.get('name'):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail='Name is required'
+                )
+            if len(sanitized_data['name'].strip()) < 3:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail='Name must be at least 3 characters long'
+                )
+            if not sanitized_data.get('description'):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail='Description is required'
+                )
+
+            organization = Organization(
+                name=sanitized_data['name'],
+                description=sanitized_data.get('description')
+            )
+            
+            db.add(organization)
+            db.commit()
+            db.refresh(organization)
+            
+            logger.info(f'Successfully created organization {organization.id}')
+            return organization.to_dict()
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f'Error creating organization: {str(e)}', exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error creating organization: {str(e)}"
+            )
+
+    async def get_organization(self, org_id: str, db: Session) -> Optional[Dict[str, Any]]:
+        """Get a single organization by ID."""
+        try:
+            logger.info(f'Fetching organization {org_id}')
+            
+            organization = db.query(Organization).filter(Organization.id == org_id).first()
+            if not organization:
+                logger.warning(f'Organization {org_id} not found')
+                return None
+            
+            logger.info(f'Successfully fetched organization {org_id}')
+            return organization.to_dict()
+            
+        except Exception as e:
+            logger.error(f'Error getting organization: {str(e)}', exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error fetching organization: {str(e)}"
+            )
+
+    async def get_organizations(self, db: Session) -> List[Dict[str, Any]]:
+        """Get all organizations."""
+        try:
+            logger.info('Fetching all organizations')
+            
+            organizations = db.query(Organization).order_by(Organization.created_at.desc()).all()
+            logger.info(f'Found {len(organizations)} organizations')
+            
+            return [org.to_dict() for org in organizations]
+            
+        except Exception as e:
+            logger.error(f'Error getting organizations: {str(e)}', exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error fetching organizations: {str(e)}"
+            )
+
+    async def update_organization(self, org_id: str, update_data: OrganizationUpdate, db: Session) -> Optional[Dict[str, Any]]:
+        """Update organization properties."""
+        try:
+            logger.info(f'Updating organization {org_id}')
+            
+            organization = db.query(Organization).filter(Organization.id == org_id).first()
+            if not organization:
+                logger.warning(f'Organization {org_id} not found')
+                return None
+            
+            # Convert Pydantic model to dict, excluding unset values
+            data = update_data.model_dump(exclude_unset=True)
+            
+            # Sanitize input
+            sanitized_data = self.sanitize_input(data)
+            
+            # Validate only the fields being updated
+            is_valid, error_message = self.validate_organization_data(sanitized_data)
+            if not is_valid:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=error_message
+                )
+            
+            # Update only provided fields
+            for field, value in sanitized_data.items():
+                setattr(organization, field, value)
+            
+            db.commit()
+            db.refresh(organization)
+            
+            logger.info(f'Successfully updated organization {org_id}')
+            return organization.to_dict()
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f'Error updating organization: {str(e)}', exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error updating organization: {str(e)}"
+            ) 

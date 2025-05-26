@@ -7,6 +7,12 @@ from app.schemas.campaign import (
     CampaignStatusUpdate,
     CampaignInDB
 )
+from app.schemas.organization import (
+    OrganizationCreate,
+    OrganizationUpdate,
+    OrganizationResponse,
+    OrganizationInDB
+)
 
 __all__ = [
     "JobCreate", 
@@ -17,5 +23,9 @@ __all__ = [
     "CampaignResponse",
     "CampaignStart",
     "CampaignStatusUpdate",
-    "CampaignInDB"
+    "CampaignInDB",
+    "OrganizationCreate",
+    "OrganizationUpdate",
+    "OrganizationResponse",
+    "OrganizationInDB"
 ]
