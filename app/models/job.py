@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum, Text
+from sqlalchemy import Column, Integer, String, DateTime, Enum, Text, ForeignKey
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 import enum
 
 from app.core.database import Base
@@ -21,6 +22,10 @@ class Job(Base):
     status = Column(Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
     result = Column(Text)
     error = Column(Text)
+    campaign_id = Column(String(36), ForeignKey("campaigns.id"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    completed_at = Column(DateTime(timezone=True)) 
+    completed_at = Column(DateTime(timezone=True))
+    
+    # Relationship to campaign
+    campaign = relationship("Campaign", back_populates="jobs") 

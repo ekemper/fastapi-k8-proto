@@ -12,6 +12,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 # Import your models
 from app.core.database import Base
 from app.models import job  # Import all models
+from app.models import campaign  # Import campaign model
 from app.core.config import settings  # Import settings
 
 # this is the Alembic Config object

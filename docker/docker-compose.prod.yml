@@ -40,11 +40,6 @@ services:
       - POSTGRES_DB=fastapi_k8_proto
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-    volumes:
-      - ../app:/app/app
-      - ../alembic:/app/alembic
-      - ../alembic.ini:/app/alembic.ini
-      - ../tests:/app/tests
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,7 +47,7 @@ services:
         condition: service_healthy
     command: >
       sh -c "alembic upgrade head &&
-             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+             gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000"
 
   worker:
     build:
@@ -65,8 +60,6 @@ services:
       - POSTGRES_DB=fastapi_k8_proto
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-    volumes:
-      - ../app:/app/app
     depends_on:
       postgres:
         condition: service_healthy
