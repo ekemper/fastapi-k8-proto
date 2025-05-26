@@ -12,6 +12,7 @@ from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
 from app.models.job import Job, JobStatus, JobType
 from tests.fixtures.campaign_fixtures import *
+from tests.helpers.instantly_mock import mock_instantly_service
 
 
 # ---------------------------------------------------------------------------

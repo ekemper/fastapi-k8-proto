@@ -2,10 +2,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 import uuid
+from unittest.mock import patch, MagicMock
 
 from app.models.organization import Organization
 from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
+from tests.helpers.instantly_mock import mock_instantly_service
 
 
 # ---------------------------------------------------------------------------
@@ -547,4 +549,20 @@ def test_null_organization_id_in_campaign_creation(client, test_db_session):
     
     # Verify no campaign was created
     campaign_count = test_db_session.query(Campaign).count()
-    assert campaign_count == 0 
+    assert campaign_count == 0
+
+
+@pytest.fixture(autouse=True, scope="module")
+def mock_instantly_service():
+    """Mock InstantlyService for all organization-campaign integration tests."""
+    class DummyInstantlyService:
+        def __init__(self, *args, **kwargs):
+            pass
+        def create_lead(self, *args, **kwargs):
+            return {"result": "mocked"}
+        def create_campaign(self, *args, **kwargs):
+            return {"id": "mocked-campaign-id"}
+        def get_campaign_analytics_overview(self, *args, **kwargs):
+            return {"analytics": "mocked"}
+    with patch("app.services.campaign.InstantlyService", DummyInstantlyService):
+        yield 

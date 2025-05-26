@@ -6,10 +6,12 @@ This file serves as both documentation and validation of fixture usage patterns.
 
 import pytest
 from fastapi import status
+from unittest.mock import patch, MagicMock
 
 from app.models.campaign_status import CampaignStatus
 from app.models.job import JobStatus, JobType
 from tests.fixtures.campaign_fixtures import *
+from tests.helpers.instantly_mock import mock_instantly_service
 
 
 # ---------------------------------------------------------------------------
@@ -394,4 +396,20 @@ def test_transaction_isolation(transaction_rollback_session, organization):
 def test_transaction_rollback_worked(test_db_session):
     """Verify that transaction rollback fixture worked."""
     # Should not see data from previous test
-    assert test_db_session.query(Campaign).count() == 0 
+    assert test_db_session.query(Campaign).count() == 0
+
+
+@pytest.fixture(autouse=True, scope="module")
+def mock_instantly_service():
+    """Mock InstantlyService for all fixtures demo tests."""
+    class DummyInstantlyService:
+        def __init__(self, *args, **kwargs):
+            pass
+        def create_lead(self, *args, **kwargs):
+            return {"result": "mocked"}
+        def create_campaign(self, *args, **kwargs):
+            return {"id": "mocked-campaign-id"}
+        def get_campaign_analytics_overview(self, *args, **kwargs):
+            return {"analytics": "mocked"}
+    with patch("app.services.campaign.InstantlyService", DummyInstantlyService):
+        yield 

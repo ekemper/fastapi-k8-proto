@@ -1,10 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import patch, MagicMock
 
 from app.main import app
 from app.core.database import Base, get_db
 from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
+from tests.helpers.instantly_mock import mock_instantly_service
 
 @pytest.fixture
 def sample_campaign_data(organization):

@@ -1,9 +1,9 @@
 import os
 import requests
-from server.models import Campaign, Lead
-from server.config.database import db
-from server.utils.logging_config import app_logger
-from server.models.campaign import CampaignStatus
+from app.models import Campaign, Lead
+from app.core.database import db
+from app.core.logging_config import app_logger
+from app.models.campaign_status import CampaignStatus
 from typing import Dict, Any, List
 
 class EmailVerifierService:

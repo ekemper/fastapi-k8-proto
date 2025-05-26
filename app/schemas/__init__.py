@@ -13,6 +13,7 @@ from app.schemas.organization import (
     OrganizationResponse,
     OrganizationInDB
 )
+from app.schemas.lead import LeadCreate, LeadUpdate, LeadResponse
 
 __all__ = [
     "JobCreate", 
@@ -27,5 +28,8 @@ __all__ = [
     "OrganizationCreate",
     "OrganizationUpdate",
     "OrganizationResponse",
-    "OrganizationInDB"
+    "OrganizationInDB",
+    "LeadCreate",
+    "LeadUpdate",
+    "LeadResponse"
 ]

@@ -8,10 +8,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from unittest.mock import patch, MagicMock
 
 from app.main import app
 from app.core.database import Base, get_db
 from tests.helpers.database_helpers import DatabaseHelpers
+from tests.helpers.instantly_mock import mock_instantly_service
 
 # Test database
 # SQLALCHEMY_DATABASE_URL = "sqlite:///./test_helpers_integration.db"
@@ -40,6 +42,21 @@ def db_session(test_db_session):
 def db_helpers(db_session):
     """Create DatabaseHelpers instance for testing."""
     return DatabaseHelpers(db_session)
+
+@pytest.fixture(autouse=True, scope="module")
+def mock_instantly_service():
+    """Mock InstantlyService for all helpers integration tests."""
+    class DummyInstantlyService:
+        def __init__(self, *args, **kwargs):
+            pass
+        def create_lead(self, *args, **kwargs):
+            return {"result": "mocked"}
+        def create_campaign(self, *args, **kwargs):
+            return {"id": "mocked-campaign-id"}
+        def get_campaign_analytics_overview(self, *args, **kwargs):
+            return {"analytics": "mocked"}
+    with patch("app.services.campaign.InstantlyService", DummyInstantlyService):
+        yield
 
 def test_campaign_api_with_database_verification(db_helpers, organization, client):
     """Test campaign API endpoints with comprehensive database verification."""

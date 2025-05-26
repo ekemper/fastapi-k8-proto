@@ -8,6 +8,7 @@ from app.main import app
 from app.core.database import Base, get_db
 from app.models.organization import Organization
 from app.models.campaign import Campaign
+from tests.helpers.instantly_mock import mock_instantly_service
 
 # Test database
 # SQLALCHEMY_DATABASE_URL = "sqlite:///./test_organizations_api.db"

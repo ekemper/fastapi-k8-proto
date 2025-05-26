@@ -16,6 +16,7 @@ from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
 from app.models.job import Job, JobStatus, JobType
 from app.core.database import Base
+from app.models.lead import Lead
 
 
 class DatabaseHelpers:
@@ -331,6 +332,92 @@ class DatabaseHelpers:
         assert len(orphaned_jobs) == 0, (
             f"Found {len(orphaned_jobs)} orphaned jobs with invalid campaign_id references"
         )
+    
+    def verify_lead_in_db(self, lead_id: str, expected_data: Dict[str, Any] = None) -> Lead:
+        """
+        Verify lead exists in database with expected values.
+        Args:
+            lead_id: Lead ID to verify
+            expected_data: Dictionary of field->value pairs to verify
+        Returns:
+            Lead object if found
+        Raises:
+            AssertionError: If lead not found or values don't match
+        """
+        lead = self.db_session.query(Lead).filter(Lead.id == lead_id).first()
+        assert lead is not None, f"Lead {lead_id} not found in database"
+        if expected_data:
+            for field, expected_value in expected_data.items():
+                actual_value = getattr(lead, field, None)
+                if hasattr(actual_value, 'isoformat') and isinstance(expected_value, str):
+                    actual_value = actual_value.isoformat()
+                assert actual_value == expected_value, (
+                    f"Lead {lead_id}: Expected {field}={expected_value}, got {actual_value}"
+                )
+        return lead
+
+    def verify_lead_not_in_db(self, lead_id: str) -> None:
+        """
+        Verify lead was not created or was deleted.
+        Args:
+            lead_id: Lead ID that should not exist
+        Raises:
+            AssertionError: If lead exists in database
+        """
+        lead = self.db_session.query(Lead).filter(Lead.id == lead_id).first()
+        assert lead is None, f"Lead {lead_id} should not exist in database but was found"
+
+    def count_leads_in_db(self) -> int:
+        """
+        Count total leads in database.
+        Returns:
+            Number of leads in database
+        """
+        return self.db_session.query(Lead).count()
+
+    def cleanup_lead_test_data(self) -> Dict[str, int]:
+        """
+        Clean all test leads from database.
+        Returns:
+            Dictionary with counts of deleted records
+        """
+        leads_deleted = self.db_session.query(Lead).delete()
+        self.db_session.commit()
+        return {"leads_deleted": leads_deleted}
+
+    def create_test_lead_in_db(self, data: Dict[str, Any]) -> Lead:
+        """
+        Create lead directly in database for testing.
+        Args:
+            data: Lead data dictionary (must include campaign_id)
+        Returns:
+            Created Lead object
+        """
+        if "campaign_id" not in data:
+            raise ValueError("campaign_id is required for lead creation")
+        lead_data = {
+            "id": str(uuid.uuid4()),
+            "first_name": "Test",
+            "last_name": "Lead",
+            "email": "testlead@example.com",
+            "phone": "1234567890",
+            "company": "TestCo",
+            "title": "Tester",
+            "linkedin_url": None,
+            "source_url": None,
+            "raw_data": None,
+            "email_verification": None,
+            "enrichment_results": None,
+            "enrichment_job_id": None,
+            "email_copy_gen_results": None,
+            "instantly_lead_record": None,
+            **data
+        }
+        lead = Lead(**lead_data)
+        self.db_session.add(lead)
+        self.db_session.commit()
+        self.db_session.refresh(lead)
+        return lead
 
 
 # Convenience functions for backward compatibility and ease of use
@@ -361,4 +448,29 @@ def cleanup_test_data(db_session: Session) -> Dict[str, int]:
 def create_test_campaign_in_db(db_session: Session, data: Dict[str, Any]) -> Campaign:
     """Convenience function for creating test campaigns."""
     helper = DatabaseHelpers(db_session)
-    return helper.create_test_campaign_in_db(data) 
+    return helper.create_test_campaign_in_db(data)
+
+
+def verify_lead_in_db(db_session, lead_id: str, expected_data: Dict[str, Any] = None) -> Lead:
+    helper = DatabaseHelpers(db_session)
+    return helper.verify_lead_in_db(lead_id, expected_data)
+
+
+def verify_lead_not_in_db(db_session, lead_id: str) -> None:
+    helper = DatabaseHelpers(db_session)
+    return helper.verify_lead_not_in_db(lead_id)
+
+
+def count_leads_in_db(db_session) -> int:
+    helper = DatabaseHelpers(db_session)
+    return helper.count_leads_in_db()
+
+
+def cleanup_lead_test_data(db_session) -> Dict[str, int]:
+    helper = DatabaseHelpers(db_session)
+    return helper.cleanup_lead_test_data()
+
+
+def create_test_lead_in_db(db_session, data: Dict[str, Any]) -> Lead:
+    helper = DatabaseHelpers(db_session)
+    return helper.create_test_lead_in_db(data) 

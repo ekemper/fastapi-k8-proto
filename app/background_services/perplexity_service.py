@@ -1,8 +1,8 @@
 import os
 import requests
-from server.models.lead import Lead
-from server.config.database import db
-from server.utils.logging_config import app_logger
+from app.models.lead import Lead
+from app.core.database import db
+from app.core.logging_config import app_logger
 from typing import Dict, Any, List
 
 class PerplexityService:

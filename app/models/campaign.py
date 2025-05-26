@@ -31,6 +31,9 @@ class Campaign(Base):
     # Relationship to jobs
     jobs = relationship("Job", back_populates="campaign")
 
+    # Relationship to leads
+    leads = relationship("Lead", back_populates="campaign")
+
     # Relationship to organization
     organization = relationship("Organization", back_populates="campaigns")
 

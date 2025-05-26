@@ -2,11 +2,13 @@ import pytest
 from datetime import datetime, timedelta, timezone
 import uuid
 import time
+from unittest.mock import patch, MagicMock
 
 from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
 from app.models.job import Job, JobStatus, JobType
 from app.models.organization import Organization
+from tests.helpers.instantly_mock import mock_instantly_service
 
 # All database setup is now handled by conftest.py
 
