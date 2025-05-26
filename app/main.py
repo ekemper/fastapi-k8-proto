@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.endpoints import jobs, health
+from app.api.endpoints import jobs, health, campaigns
 from app.core.config import settings
 
 def create_application() -> FastAPI:
@@ -23,6 +23,7 @@ def create_application() -> FastAPI:
     # Include routers
     app.include_router(health.router, prefix=f"{settings.API_V1_STR}/health", tags=["health"])
     app.include_router(jobs.router, prefix=f"{settings.API_V1_STR}/jobs", tags=["jobs"])
+    app.include_router(campaigns.router, prefix=f"{settings.API_V1_STR}/campaigns", tags=["campaigns"])
 
     return app
 

@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 
 from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
-from app.models.job import Job, JobStatus
+from app.models.job import Job, JobStatus, JobType
 from app.schemas.campaign import CampaignCreate, CampaignUpdate, CampaignStart
 try:
     from app.background_services.apollo_service import ApolloService
@@ -19,7 +19,7 @@ try:
     from app.background_services.instantly_service import InstantlyService
 except ImportError:
     InstantlyService = None
-from app.workers.tasks import celery_app
+
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +225,7 @@ class CampaignService:
                 campaign_id=campaign_id,
                 name='FETCH_LEADS',
                 description=f'Fetch leads for campaign {campaign.name}',
+                job_type=JobType.FETCH_LEADS,
                 status=JobStatus.PENDING
             )
             db.add(fetch_leads_job)
@@ -235,7 +236,8 @@ class CampaignService:
 
             # Enqueue Apollo scraping and lead saving as a background job
             logger.info(f"Enqueuing fetch_and_save_leads_task for campaign {campaign_id}")
-            task = fetch_and_save_leads.delay(job_params, campaign_id, fetch_leads_job.id)
+            from app.workers.campaign_tasks import fetch_and_save_leads_task
+            task = fetch_and_save_leads_task.delay(job_params, campaign_id, fetch_leads_job.id)
             
             # Update job with task ID
             fetch_leads_job.task_id = task.id
@@ -335,11 +337,11 @@ class CampaignService:
         return True
 
     async def cleanup_campaign_jobs(self, campaign_id: str, days: int, db: Session) -> Dict[str, Any]:
-        """Clean up old jobs for a campaign."""
+        """Clean up old jobs for a campaign using background task."""
         try:
-            logger.info(f"Cleaning up jobs for campaign {campaign_id} older than {days} days")
+            logger.info(f"Initiating cleanup for campaign {campaign_id} older than {days} days")
 
-            # Get campaign
+            # Get campaign to verify it exists
             campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
             if not campaign:
                 raise HTTPException(
@@ -347,40 +349,24 @@ class CampaignService:
                     detail=f"Campaign {campaign_id} not found"
                 )
 
-            # Calculate cutoff date
-            cutoff_date = datetime.utcnow() - timedelta(days=days)
+            # Queue cleanup task
+            from app.workers.campaign_tasks import cleanup_campaign_jobs_task
+            task = cleanup_campaign_jobs_task.delay(campaign_id, days)
 
-            # Get jobs to delete
-            jobs = (
-                db.query(Job)
-                .filter(
-                    Job.campaign_id == campaign_id,
-                    Job.created_at < cutoff_date,
-                    Job.status.in_([JobStatus.COMPLETED, JobStatus.FAILED])
-                )
-                .all()
-            )
-
-            # Delete jobs
-            for job in jobs:
-                db.delete(job)
-
-            db.commit()
-
-            logger.info(f"Successfully cleaned up {len(jobs)} jobs for campaign {campaign_id}")
+            logger.info(f"Queued cleanup task {task.id} for campaign {campaign_id}")
             return {
-                'message': f'Successfully cleaned up {len(jobs)} jobs',
-                'jobs_deleted': len(jobs)
+                'message': f'Cleanup task queued for campaign {campaign_id}',
+                'task_id': task.id,
+                'status': 'queued'
             }
 
         except HTTPException:
             raise
         except Exception as e:
-            db.rollback()
-            logger.error(f"Error cleaning up campaign jobs: {str(e)}", exc_info=True)
+            logger.error(f"Error queueing cleanup task: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error cleaning up campaign jobs: {str(e)}"
+                detail=f"Error queueing cleanup task: {str(e)}"
             )
 
     async def get_campaign_lead_stats(self, campaign_id: str, db: Session) -> Dict[str, Any]:
@@ -480,68 +466,4 @@ class CampaignService:
             )
 
 
-# Celery task for fetching and saving leads
-@celery_app.task(bind=True, name="fetch_and_save_leads")
-def fetch_and_save_leads(self, job_params: Dict[str, Any], campaign_id: str, job_id: int):
-    """Background task to fetch and save leads from Apollo."""
-    from app.core.database import SessionLocal
-    
-    db = SessionLocal()
-    try:
-        # Update job status to processing
-        job = db.query(Job).filter(Job.id == job_id).first()
-        if not job:
-            raise ValueError(f"Job {job_id} not found")
-        
-        job.status = JobStatus.PROCESSING
-        job.task_id = self.request.id
-        db.commit()
-        
-        # Initialize Apollo service and fetch leads
-        try:
-            from app.background_services.apollo_service import ApolloService
-            apollo_service = ApolloService()
-            result = apollo_service.fetch_leads(job_params, campaign_id, db)
-        except ImportError:
-            logger.error("ApolloService not available")
-            result = {'count': 0, 'errors': ['ApolloService not available']}
-        
-        # Update job status to completed
-        job.status = JobStatus.COMPLETED
-        job.result = f"Fetched {result.get('count', 0)} leads"
-        job.completed_at = datetime.utcnow()
-        
-        # Update campaign status
-        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
-        if campaign:
-            campaign.update_status(
-                CampaignStatus.COMPLETED,
-                f"Successfully fetched {result.get('count', 0)} leads"
-            )
-        
-        db.commit()
-        
-        return {
-            "job_id": job_id,
-            "campaign_id": campaign_id,
-            "status": "completed",
-            "result": result
-        }
-        
-    except Exception as e:
-        # Mark job as failed
-        if 'job' in locals() and job:
-            job.status = JobStatus.FAILED
-            job.error = str(e)
-            job.completed_at = datetime.utcnow()
-            
-        # Mark campaign as failed
-        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
-        if campaign:
-            campaign.update_status(CampaignStatus.FAILED, error_message=str(e))
-            
-        db.commit()
-        raise
-        
-    finally:
-        db.close() 
+ 

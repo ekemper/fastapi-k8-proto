@@ -12,6 +12,16 @@ class JobStatus(str, enum.Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+class JobType(str, enum.Enum):
+    """Campaign-specific job types for different operations."""
+    FETCH_LEADS = "FETCH_LEADS"
+    ENRICH_LEADS = "ENRICH_LEADS"
+    VERIFY_EMAILS = "VERIFY_EMAILS"
+    GENERATE_EMAIL_COPY = "GENERATE_EMAIL_COPY"
+    UPLOAD_TO_INSTANTLY = "UPLOAD_TO_INSTANTLY"
+    CLEANUP_CAMPAIGN = "CLEANUP_CAMPAIGN"
+    GENERAL = "GENERAL"  # For non-campaign specific jobs
+
 class Job(Base):
     __tablename__ = "jobs"
 
@@ -19,6 +29,7 @@ class Job(Base):
     task_id = Column(String, unique=True, index=True)
     name = Column(String, nullable=False)
     description = Column(Text)
+    job_type = Column(Enum(JobType), default=JobType.GENERAL, nullable=False, index=True)
     status = Column(Enum(JobStatus), default=JobStatus.PENDING, nullable=False)
     result = Column(Text)
     error = Column(Text)
