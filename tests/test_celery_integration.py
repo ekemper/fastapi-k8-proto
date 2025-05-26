@@ -8,24 +8,7 @@ from app.main import app
 from app.core.database import Base, get_db
 from app.workers.tasks import health_check
 
-# Test database
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base.metadata.create_all(bind=engine)
-
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-app.dependency_overrides[get_db] = override_get_db
-client = TestClient(app)
-
-def test_celery_health_check():
+def test_celery_health_check(client):
     """Test that Celery is configured correctly"""
     # This test requires a running Celery worker
     # For unit tests, we'll just check the task can be called directly
@@ -33,7 +16,7 @@ def test_celery_health_check():
     assert result["status"] == "healthy"
     assert "timestamp" in result
 
-def test_create_job_endpoint():
+def test_create_job_endpoint(client):
     """Test job creation via API"""
     response = client.post(
         "/api/v1/jobs",
@@ -45,7 +28,7 @@ def test_create_job_endpoint():
     assert data["status"] == "pending"
     assert "task_id" in data
 
-def test_job_status_endpoint():
+def test_job_status_endpoint(client):
     """Test job status retrieval"""
     # Create a job
     response = client.post(
@@ -61,7 +44,7 @@ def test_job_status_endpoint():
     assert data["job_id"] == job_id
     assert "status" in data
 
-def test_list_jobs_endpoint():
+def test_list_jobs_endpoint(client):
     """Test listing jobs with filters"""
     # List all jobs
     response = client.get("/api/v1/jobs")
@@ -72,7 +55,7 @@ def test_list_jobs_endpoint():
     response = client.get("/api/v1/jobs?status=pending")
     assert response.status_code == 200
 
-def test_cancel_job_endpoint():
+def test_cancel_job_endpoint(client):
     """Test job cancellation"""
     # Create a job
     response = client.post(

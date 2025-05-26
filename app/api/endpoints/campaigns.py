@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
@@ -18,11 +18,12 @@ router = APIRouter()
 async def list_campaigns(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    organization_id: Optional[str] = Query(None, description="Filter by organization ID"),
     db: Session = Depends(get_db)
 ):
-    """List all campaigns with optional pagination"""
+    """List all campaigns with optional pagination and organization filtering"""
     campaign_service = CampaignService()
-    campaigns_data = await campaign_service.get_campaigns(db)
+    campaigns_data = await campaign_service.get_campaigns(db, organization_id=organization_id)
     
     # Convert to response models
     campaigns = []

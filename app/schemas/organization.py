@@ -32,4 +32,16 @@ class OrganizationInDB(OrganizationBase):
 
 class OrganizationResponse(OrganizationInDB):
     """Schema for organization API responses."""
-    pass 
+    campaign_count: int = Field(0, description="Number of campaigns in this organization")
+    
+    @classmethod
+    def from_organization(cls, organization, campaign_count: int = 0):
+        """Create response schema from organization model."""
+        return cls(
+            id=organization.id,
+            name=organization.name,
+            description=organization.description,
+            created_at=organization.created_at,
+            updated_at=organization.updated_at,
+            campaign_count=campaign_count
+        ) 

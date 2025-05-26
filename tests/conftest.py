@@ -3,10 +3,12 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from fastapi.testclient import TestClient
+import uuid
 
 from app.main import app
 from app.core.database import Base, get_db
 from app.core.config import settings
+from app.models.organization import Organization
 
 # Override settings for testing
 settings.POSTGRES_SERVER = os.getenv("POSTGRES_SERVER", "localhost")
@@ -111,4 +113,34 @@ from tests.helpers.database_helpers import DatabaseHelpers
 @pytest.fixture
 def db_helpers(db_session):
     """Provide database helper utilities for tests."""
-    return DatabaseHelpers(db_session) 
+    return DatabaseHelpers(db_session)
+
+@pytest.fixture(scope="function")
+def organization(db_session):
+    """Create and return a valid organization for use in tests."""
+    org = Organization(
+        id=str(uuid.uuid4()),
+        name="Test Organization",
+        description="Primary test organization"
+    )
+    db_session.add(org)
+    db_session.commit()
+    db_session.refresh(org)
+    return org
+
+@pytest.fixture(scope="function")
+def multiple_organizations(db_session):
+    """Create multiple test organizations for variety testing."""
+    orgs = []
+    for i in range(3):
+        org = Organization(
+            id=str(uuid.uuid4()),
+            name=f"Test Organization {i+1}",
+            description=f"Test organization {i+1} for variety testing"
+        )
+        db_session.add(org)
+        orgs.append(org)
+    db_session.commit()
+    for org in orgs:
+        db_session.refresh(org)
+    return orgs 

@@ -9,7 +9,7 @@ class CampaignBase(BaseModel):
     """Base campaign schema with common fields."""
     name: str = Field(..., min_length=1, max_length=255, description="Campaign name")
     description: Optional[str] = Field(None, description="Campaign description")
-    organization_id: Optional[str] = Field(None, max_length=36, description="Organization ID")
+    organization_id: str = Field(..., max_length=36, description="Organization ID")
     fileName: str = Field(..., min_length=1, max_length=255, description="File name for the campaign")
     totalRecords: int = Field(..., ge=0, description="Total number of records in the campaign")
     url: str = Field(..., min_length=1, description="URL for the campaign")

@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 import time
 
@@ -509,10 +509,13 @@ def test_cleanup_old_jobs_success(client, db_session, campaign_payload):
     campaign_id = create_response.json()["id"]
     
     # Create old jobs (manually for testing)
-    old_date = datetime.utcnow() - timedelta(days=40)
-    recent_date = datetime.utcnow() - timedelta(days=10)
+    old_date = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=40)
+    recent_date = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=10)
     
     old_job = Job(
+        name="Old Test Job",
+        description="Old job for cleanup testing",
+        task_id=f"old-task-{uuid.uuid4()}",
         campaign_id=campaign_id,
         job_type=JobType.FETCH_LEADS,
         status=JobStatus.COMPLETED,
@@ -520,6 +523,9 @@ def test_cleanup_old_jobs_success(client, db_session, campaign_payload):
         completed_at=old_date
     )
     recent_job = Job(
+        name="Recent Test Job",
+        description="Recent job for cleanup testing",
+        task_id=f"recent-task-{uuid.uuid4()}",
         campaign_id=campaign_id,
         job_type=JobType.FETCH_LEADS,
         status=JobStatus.COMPLETED,

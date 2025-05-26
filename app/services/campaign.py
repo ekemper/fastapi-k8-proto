@@ -31,12 +31,34 @@ class CampaignService:
         self.apollo_service = ApolloService() if ApolloService else None
         self.instantly_service = InstantlyService() if InstantlyService else None
 
-    async def get_campaigns(self, db: Session) -> List[Dict[str, Any]]:
-        """Get all campaigns with latest job information."""
+    async def get_campaigns(self, db: Session, organization_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get all campaigns with latest job information, optionally filtered by organization."""
         try:
-            logger.info('Fetching all campaigns')
+            if organization_id:
+                logger.info(f'Fetching campaigns for organization {organization_id}')
+                
+                # Validate organization exists
+                from app.models.organization import Organization
+                organization = db.query(Organization).filter(
+                    Organization.id == organization_id
+                ).first()
+                if not organization:
+                    logger.warning(f'Organization {organization_id} not found during campaign fetch')
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Organization {organization_id} not found"
+                    )
+                
+                campaigns = (
+                    db.query(Campaign)
+                    .filter(Campaign.organization_id == organization_id)
+                    .order_by(Campaign.created_at.desc())
+                    .all()
+                )
+            else:
+                logger.info('Fetching all campaigns')
+                campaigns = db.query(Campaign).order_by(Campaign.created_at.desc()).all()
             
-            campaigns = db.query(Campaign).order_by(Campaign.created_at.desc()).all()
             logger.info(f'Found {len(campaigns)} campaigns')
             
             campaign_list = []
@@ -70,6 +92,8 @@ class CampaignService:
             logger.info(f'Successfully converted {len(campaign_list)} campaigns to dict')
             return campaign_list
             
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f'Error getting campaigns: {str(e)}', exc_info=True)
             raise HTTPException(
@@ -108,9 +132,21 @@ class CampaignService:
             )
 
     async def create_campaign(self, campaign_data: CampaignCreate, db: Session) -> Dict[str, Any]:
-        """Create a new campaign."""
+        """Create a new campaign with organization validation."""
         try:
             logger.info(f'Creating campaign: {campaign_data.name}')
+            
+            # Validate organization exists
+            from app.models.organization import Organization
+            organization = db.query(Organization).filter(
+                Organization.id == campaign_data.organization_id
+            ).first()
+            if not organization:
+                logger.warning(f'Organization {campaign_data.organization_id} not found during campaign creation')
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Organization {campaign_data.organization_id} not found"
+                )
             
             campaign = Campaign(
                 name=campaign_data.name,
@@ -145,6 +181,8 @@ class CampaignService:
             logger.info(f'Successfully created campaign {campaign.id}')
             return campaign.to_dict()
             
+        except HTTPException:
+            raise
         except Exception as e:
             db.rollback()
             logger.error(f'Error creating campaign: {str(e)}', exc_info=True)
@@ -165,6 +203,20 @@ class CampaignService:
             
             # Update only provided fields
             update_dict = update_data.model_dump(exclude_unset=True)
+            
+            # Validate organization exists if organization_id is being updated
+            if 'organization_id' in update_dict:
+                from app.models.organization import Organization
+                organization = db.query(Organization).filter(
+                    Organization.id == update_dict['organization_id']
+                ).first()
+                if not organization:
+                    logger.warning(f'Organization {update_dict["organization_id"]} not found during campaign update')
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Organization {update_dict['organization_id']} not found"
+                    )
+            
             for field, value in update_dict.items():
                 setattr(campaign, field, value)
             

@@ -548,7 +548,7 @@ from app.models.organization import Organization
 from app.models.campaign import Campaign
 
 # Test database
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_organizations_api.db"
+SQLALCHEMY_DATABASE_URL = "postgresql://postgres:postgres@localhost/test_db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

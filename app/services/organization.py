@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.models.organization import Organization
+from app.models.campaign import Campaign
 from app.schemas.organization import OrganizationCreate, OrganizationUpdate
 
 
@@ -14,6 +15,15 @@ logger = logging.getLogger(__name__)
 
 class OrganizationService:
     """Service for managing organization business logic."""
+    
+    def get_campaign_count(self, org_id: str, db: Session) -> int:
+        """Get the number of campaigns for an organization."""
+        try:
+            count = db.query(Campaign).filter(Campaign.organization_id == org_id).count()
+            return count
+        except Exception as e:
+            logger.error(f'Error getting campaign count for organization {org_id}: {str(e)}')
+            return 0
     
     def sanitize_input(self, data: dict) -> dict:
         """Sanitize input data to prevent XSS and other attacks."""

@@ -6,7 +6,7 @@ and ensuring API operations have the expected database effects.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Union
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
@@ -173,11 +173,15 @@ class DatabaseHelpers:
         Create campaign directly in database for testing.
         
         Args:
-            data: Campaign data dictionary
+            data: Campaign data dictionary (must include organization_id)
             
         Returns:
             Created Campaign object
         """
+        # organization_id is now required - must be provided in data
+        if "organization_id" not in data:
+            raise ValueError("organization_id is required for campaign creation")
+            
         # Set defaults for required fields
         campaign_data = {
             "id": str(uuid.uuid4()),
@@ -187,7 +191,6 @@ class DatabaseHelpers:
             "fileName": "test.csv",
             "totalRecords": 100,
             "url": "https://test.com",
-            "organization_id": None,
             "status_message": None,
             "status_error": None,
             "instantly_campaign_id": None,
@@ -288,7 +291,7 @@ class DatabaseHelpers:
         
         if check_updated:
             # Verify updated_at is recent (within last 10 seconds)
-            time_diff = datetime.utcnow() - campaign.updated_at.replace(tzinfo=None)
+            time_diff = datetime.utcnow().replace(tzinfo=timezone.utc) - campaign.updated_at.replace(tzinfo=timezone.utc)
             assert time_diff.total_seconds() < 10, (
                 f"Campaign {campaign_id}: updated_at timestamp is not recent "
                 f"(diff: {time_diff.total_seconds()} seconds)"

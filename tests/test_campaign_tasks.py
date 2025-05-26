@@ -1,13 +1,13 @@
 import pytest
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base, get_db
 from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
-from app.models.job import Job, JobStatus
+from app.models.job import Job, JobStatus, JobType
 from app.workers.campaign_tasks import (
     fetch_and_save_leads_task,
     cleanup_campaign_jobs_task,
@@ -15,24 +15,8 @@ from app.workers.campaign_tasks import (
     campaign_health_check
 )
 
-# Test database
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_campaign_tasks.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base.metadata.create_all(bind=engine)
-
 @pytest.fixture
-def db_session():
-    """Create a fresh database session for each test."""
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-@pytest.fixture
-def sample_campaign(db_session):
+def sample_campaign(db_session, organization):
     """Create a sample campaign for testing."""
     campaign = Campaign(
         name="Test Campaign",
@@ -40,7 +24,8 @@ def sample_campaign(db_session):
         status=CampaignStatus.CREATED,
         fileName="test.csv",
         totalRecords=50,
-        url="https://app.apollo.io/test"
+        url="https://app.apollo.io/test",
+        organization_id=organization.id
     )
     db_session.add(campaign)
     db_session.commit()
@@ -54,6 +39,7 @@ def sample_job(db_session, sample_campaign):
         campaign_id=sample_campaign.id,
         name="FETCH_LEADS",
         description="Test job",
+        job_type=JobType.FETCH_LEADS,
         status=JobStatus.PENDING
     )
     db_session.add(job)
@@ -63,11 +49,7 @@ def sample_job(db_session, sample_campaign):
 
 def test_campaign_health_check():
     """Test the campaign health check task."""
-    # Mock the database session to use our test database
-    from unittest.mock import patch
-    
-    with patch('app.workers.campaign_tasks.SessionLocal', TestingSessionLocal):
-        result = campaign_health_check()
+    result = campaign_health_check()
     
     assert result["status"] == "healthy"
     assert "timestamp" in result
@@ -75,7 +57,7 @@ def test_campaign_health_check():
     assert "job_count" in result
     assert result["service"] == "campaign_tasks"
 
-def test_fetch_and_save_leads_task_mock(sample_campaign, sample_job):
+def test_fetch_and_save_leads_task_mock(db_session, sample_campaign, sample_job):
     """Test the fetch and save leads task with mock data."""
     job_params = {
         "fileName": sample_campaign.fileName,
@@ -87,7 +69,7 @@ def test_fetch_and_save_leads_task_mock(sample_campaign, sample_job):
     # This tests the task logic without the Celery infrastructure
     
     # Simulate task execution
-    db = TestingSessionLocal()
+    db = db_session
     try:
         # Update job status to processing
         job = db.query(Job).filter(Job.id == sample_job.id).first()
@@ -103,7 +85,7 @@ def test_fetch_and_save_leads_task_mock(sample_campaign, sample_job):
         # Update job status to completed
         job.status = JobStatus.COMPLETED
         job.result = f"Successfully fetched {leads_count} leads"
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.utcnow().replace(tzinfo=timezone.utc)
         
         # First update campaign to RUNNING, then to COMPLETED
         campaign.update_status(CampaignStatus.RUNNING, status_message="Processing leads")
@@ -122,17 +104,18 @@ def test_fetch_and_save_leads_task_mock(sample_campaign, sample_job):
     finally:
         db.close()
 
-def test_cleanup_campaign_jobs_task(sample_campaign):
+def test_cleanup_campaign_jobs_task(db_session, sample_campaign):
     """Test the cleanup campaign jobs task."""
-    db = TestingSessionLocal()
+    db = db_session
     try:
         # Create some old jobs
-        old_date = datetime.utcnow() - timedelta(days=35)
+        old_date = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=35)
         
         old_job1 = Job(
             campaign_id=sample_campaign.id,
             name="OLD_JOB_1",
             description="Old job 1",
+            job_type=JobType.GENERAL,
             status=JobStatus.COMPLETED,
             created_at=old_date
         )
@@ -140,6 +123,7 @@ def test_cleanup_campaign_jobs_task(sample_campaign):
             campaign_id=sample_campaign.id,
             name="OLD_JOB_2", 
             description="Old job 2",
+            job_type=JobType.GENERAL,
             status=JobStatus.FAILED,
             created_at=old_date
         )
@@ -149,8 +133,9 @@ def test_cleanup_campaign_jobs_task(sample_campaign):
             campaign_id=sample_campaign.id,
             name="RECENT_JOB",
             description="Recent job",
+            job_type=JobType.GENERAL,
             status=JobStatus.COMPLETED,
-            created_at=datetime.utcnow() - timedelta(days=5)
+            created_at=datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=5)
         )
         
         db.add_all([old_job1, old_job2, recent_job])
@@ -161,7 +146,7 @@ def test_cleanup_campaign_jobs_task(sample_campaign):
         assert jobs_before == 3
         
         # Mock the cleanup task execution
-        cutoff_date = datetime.utcnow() - timedelta(days=30)
+        cutoff_date = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=30)
         
         jobs_to_delete = (
             db.query(Job)
@@ -192,9 +177,9 @@ def test_cleanup_campaign_jobs_task(sample_campaign):
     finally:
         db.close()
 
-def test_process_campaign_leads_task_mock(sample_campaign):
+def test_process_campaign_leads_task_mock(db_session, sample_campaign):
     """Test the process campaign leads task with mock data."""
-    db = TestingSessionLocal()
+    db = db_session
     try:
         # Mock the task execution
         processing_type = "enrichment"
@@ -204,6 +189,7 @@ def test_process_campaign_leads_task_mock(sample_campaign):
             campaign_id=sample_campaign.id,
             name=f'PROCESS_LEADS_{processing_type.upper()}',
             description=f'Process leads for campaign {sample_campaign.name} - {processing_type}',
+            job_type=JobType.ENRICH_LEADS,
             status=JobStatus.PROCESSING
         )
         db.add(processing_job)
@@ -216,7 +202,7 @@ def test_process_campaign_leads_task_mock(sample_campaign):
         # Update job status
         processing_job.status = JobStatus.COMPLETED
         processing_job.result = f"Processed {processed_count} leads with {processing_type}"
-        processing_job.completed_at = datetime.utcnow()
+        processing_job.completed_at = datetime.utcnow().replace(tzinfo=timezone.utc)
         db.commit()
         
         # Verify results
@@ -227,9 +213,9 @@ def test_process_campaign_leads_task_mock(sample_campaign):
     finally:
         db.close()
 
-def test_task_error_handling(sample_campaign, sample_job):
+def test_task_error_handling(db_session, sample_campaign, sample_job):
     """Test error handling in tasks."""
-    db = TestingSessionLocal()
+    db = db_session
     try:
         # Test with non-existent job ID
         job_params = {
@@ -285,9 +271,9 @@ def test_task_progress_tracking():
     assert progress_states[-1]["meta"]["current"] == 4
     assert all(state["state"] == "PROGRESS" for state in progress_states)
 
-def test_job_status_transitions(sample_campaign, sample_job):
+def test_job_status_transitions(db_session, sample_campaign, sample_job):
     """Test proper job status transitions during task execution."""
-    db = TestingSessionLocal()
+    db = db_session
     try:
         # Initial status should be PENDING
         job = db.query(Job).filter(Job.id == sample_job.id).first()
@@ -303,7 +289,7 @@ def test_job_status_transitions(sample_campaign, sample_job):
         # Simulate successful completion
         job.status = JobStatus.COMPLETED
         job.result = "Task completed successfully"
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.utcnow().replace(tzinfo=timezone.utc)
         db.commit()
         
         job = db.query(Job).filter(Job.id == sample_job.id).first()
@@ -314,9 +300,9 @@ def test_job_status_transitions(sample_campaign, sample_job):
     finally:
         db.close()
 
-def test_campaign_status_updates(sample_campaign):
+def test_campaign_status_updates(db_session, sample_campaign):
     """Test that campaign status is properly updated by tasks."""
-    db = TestingSessionLocal()
+    db = db_session
     try:
         # Initial status should be CREATED
         campaign = db.query(Campaign).filter(Campaign.id == sample_campaign.id).first()

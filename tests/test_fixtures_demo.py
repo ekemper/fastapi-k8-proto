@@ -57,8 +57,7 @@ def test_update_existing_campaign(api_client, existing_campaign, campaign_update
     # Refresh database session to see API changes
     db_helpers.db_session.commit()
     db_helpers.db_session.close()
-    from tests.fixtures.campaign_fixtures import TestingSessionLocal
-    db_helpers.db_session = TestingSessionLocal()
+    db_helpers.db_session.rollback()
     
     # Verify update in database
     db_helpers.verify_campaign_in_db(campaign_id, {
@@ -205,13 +204,16 @@ def test_database_error_handling(api_client, database_error_scenarios):
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
-def test_isolated_environment_guarantees(isolated_test_environment, db_helpers):
+def test_isolated_environment_guarantees(isolated_test_environment, db_helpers, organization):
     """Demonstrate maximum isolation testing."""
     # Should start completely clean
     assert db_helpers.count_campaigns_in_db() == 0
     
     # Create test data
-    campaign = db_helpers.create_test_campaign_in_db({"name": "Isolated Test"})
+    campaign = db_helpers.create_test_campaign_in_db({
+        "name": "Isolated Test",
+        "organization_id": organization.id
+    })
     
     # Should exist
     assert db_helpers.count_campaigns_in_db() == 1
@@ -347,24 +349,30 @@ def test_database_and_api_consistency(
 # Cleanup and Isolation Verification
 # ---------------------------------------------------------------------------
 
-def test_fixture_cleanup_verification_1(db_helpers):
+def test_fixture_cleanup_verification_1(db_helpers, organization):
     """First test to verify cleanup works."""
     # Create some data
-    campaign = db_helpers.create_test_campaign_in_db({"name": "Cleanup Test 1"})
+    campaign = db_helpers.create_test_campaign_in_db({
+        "name": "Cleanup Test 1",
+        "organization_id": organization.id
+    })
     assert db_helpers.count_campaigns_in_db() == 1
 
 
-def test_fixture_cleanup_verification_2(db_helpers):
+def test_fixture_cleanup_verification_2(db_helpers, organization):
     """Second test to verify previous test data was cleaned up."""
     # Should start clean
     assert db_helpers.count_campaigns_in_db() == 0
     
     # Create different data
-    campaign = db_helpers.create_test_campaign_in_db({"name": "Cleanup Test 2"})
+    campaign = db_helpers.create_test_campaign_in_db({
+        "name": "Cleanup Test 2",
+        "organization_id": organization.id
+    })
     assert db_helpers.count_campaigns_in_db() == 1
 
 
-def test_transaction_isolation(transaction_rollback_session):
+def test_transaction_isolation(transaction_rollback_session, organization):
     """Demonstrate transaction rollback fixture usage."""
     # Create data that should be rolled back
     from app.models.campaign import Campaign
@@ -373,7 +381,8 @@ def test_transaction_isolation(transaction_rollback_session):
         name="Rollback Test",
         fileName="rollback.csv",
         totalRecords=100,
-        url="https://test.com"
+        url="https://test.com",
+        organization_id=organization.id
     )
     transaction_rollback_session.add(campaign)
     transaction_rollback_session.commit()

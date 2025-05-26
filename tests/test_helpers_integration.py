@@ -14,41 +14,34 @@ from app.core.database import Base, get_db
 from tests.helpers.database_helpers import DatabaseHelpers
 
 # Test database
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_helpers_integration.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base.metadata.create_all(bind=engine)
-
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-app.dependency_overrides[get_db] = override_get_db
-
-client = TestClient(app)
+# SQLALCHEMY_DATABASE_URL = "sqlite:///./test_helpers_integration.db"
+# engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+# TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+#
+# Base.metadata.create_all(bind=engine)
+#
+# def override_get_db():
+#     try:
+#         db = TestingSessionLocal()
+#         yield db
+#     finally:
+#         db.close()
+#
+# app.dependency_overrides[get_db] = override_get_db
+#
+# client = TestClient(app)
 
 @pytest.fixture
-def db_session():
+def db_session(test_db_session):
     """Create a fresh database session for each test."""
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        # Clean up after each test
-        helpers = DatabaseHelpers(db)
-        helpers.cleanup_test_data()
-        db.close()
+    return test_db_session
 
 @pytest.fixture
 def db_helpers(db_session):
     """Create DatabaseHelpers instance for testing."""
     return DatabaseHelpers(db_session)
 
-def test_campaign_api_with_database_verification(db_helpers):
+def test_campaign_api_with_database_verification(db_helpers, organization, client):
     """Test campaign API endpoints with comprehensive database verification."""
     
     # Initial state - no campaigns
@@ -61,7 +54,7 @@ def test_campaign_api_with_database_verification(db_helpers):
         "fileName": "api_test.csv",
         "totalRecords": 150,
         "url": "https://api-test.com",
-        "organization_id": "api-org-123"
+        "organization_id": organization.id
     }
     
     response = client.post("/api/v1/campaigns/", json=campaign_data)
@@ -92,11 +85,6 @@ def test_campaign_api_with_database_verification(db_helpers):
     response = client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
     assert response.status_code == 200
     
-    # Refresh the database session to see changes from API
-    db_helpers.db_session.commit()
-    db_helpers.db_session.close()
-    db_helpers.db_session = TestingSessionLocal()
-    
     # Verify updates in database
     db_helpers.verify_campaign_in_db(campaign_id, {
         "name": "Updated API Campaign",
@@ -122,13 +110,14 @@ def test_campaign_api_with_database_verification(db_helpers):
     assert api_campaign["fileName"] == updated_db_campaign.fileName
     assert api_campaign["totalRecords"] == updated_db_campaign.totalRecords
 
-def test_campaign_creation_with_job_verification(db_helpers):
+def test_campaign_creation_with_job_verification(db_helpers, organization):
     """Test campaign creation and verify any background jobs are created."""
     
     # Create campaign directly in database for testing
     campaign = db_helpers.create_test_campaign_in_db({
         "name": "Job Test Campaign",
-        "status": "created"
+        "status": "created",
+        "organization_id": organization.id
     })
     
     # Create a background job for the campaign
@@ -157,7 +146,7 @@ def test_campaign_creation_with_job_verification(db_helpers):
     # Verify status update
     db_helpers.verify_job_status_in_db(job.id, "completed")
 
-def test_multiple_campaigns_database_state(db_helpers):
+def test_multiple_campaigns_database_state(db_helpers, organization, client):
     """Test managing multiple campaigns and verifying database state."""
     
     # Create multiple campaigns via API
@@ -167,7 +156,8 @@ def test_multiple_campaigns_database_state(db_helpers):
             "name": f"Multi Campaign {i+1}",
             "fileName": f"multi_{i+1}.csv",
             "totalRecords": (i+1) * 50,
-            "url": f"https://multi-{i+1}.com"
+            "url": f"https://multi-{i+1}.com",
+            "organization_id": organization.id
         }
         
         response = client.post("/api/v1/campaigns/", json=campaign_data)
@@ -196,11 +186,14 @@ def test_multiple_campaigns_database_state(db_helpers):
     # Verify no orphaned jobs (should pass since we haven't created any jobs)
     db_helpers.verify_no_orphaned_jobs()
 
-def test_error_handling_and_cleanup(db_helpers):
+def test_error_handling_and_cleanup(db_helpers, organization):
     """Test error handling and cleanup functionality."""
     
     # Create test data
-    campaign = db_helpers.create_test_campaign_in_db({"name": "Cleanup Test"})
+    campaign = db_helpers.create_test_campaign_in_db({
+        "name": "Cleanup Test",
+        "organization_id": organization.id
+    })
     job = db_helpers.create_test_job_in_db(campaign.id)
     
     # Verify data exists

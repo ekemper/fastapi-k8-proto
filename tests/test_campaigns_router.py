@@ -1,53 +1,24 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from app.main import app
 from app.core.database import Base, get_db
 from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
 
-# Test database
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_campaigns.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base.metadata.create_all(bind=engine)
-
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-app.dependency_overrides[get_db] = override_get_db
-
-client = TestClient(app)
-
 @pytest.fixture
-def db_session():
-    """Create a fresh database session for each test."""
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-@pytest.fixture
-def sample_campaign_data():
+def sample_campaign_data(organization):
     """Sample campaign data for testing."""
     return {
         "name": "Test Campaign",
         "description": "A test campaign",
-        "organization_id": "test-org-123",
+        "organization_id": organization.id,
         "fileName": "test_file.csv",
         "totalRecords": 100,
         "url": "https://app.apollo.io/test-search"
     }
 
-def test_create_campaign(sample_campaign_data):
+def test_create_campaign(sample_campaign_data, client):
     """Test creating a new campaign."""
     response = client.post("/api/v1/campaigns/", json=sample_campaign_data)
     
@@ -64,7 +35,7 @@ def test_create_campaign(sample_campaign_data):
     assert "created_at" in data
     assert "updated_at" in data
 
-def test_list_campaigns():
+def test_list_campaigns(client):
     """Test listing campaigns."""
     response = client.get("/api/v1/campaigns/")
     
@@ -73,7 +44,7 @@ def test_list_campaigns():
     
     assert isinstance(data, list)
 
-def test_get_campaign_not_found():
+def test_get_campaign_not_found(client):
     """Test getting a non-existent campaign."""
     response = client.get("/api/v1/campaigns/non-existent-id")
     
@@ -81,26 +52,26 @@ def test_get_campaign_not_found():
     data = response.json()
     assert "not found" in data["detail"].lower()
 
-def test_get_campaign_details_not_found():
+def test_get_campaign_details_not_found(client):
     """Test getting details for a non-existent campaign."""
     response = client.get("/api/v1/campaigns/non-existent-id/details")
     
     assert response.status_code == 404
 
-def test_update_campaign_not_found():
+def test_update_campaign_not_found(client):
     """Test updating a non-existent campaign."""
     update_data = {"name": "Updated Name"}
     response = client.patch("/api/v1/campaigns/non-existent-id", json=update_data)
     
     assert response.status_code == 404
 
-def test_start_campaign_not_found():
+def test_start_campaign_not_found(client):
     """Test starting a non-existent campaign."""
     response = client.post("/api/v1/campaigns/non-existent-id/start", json={})
     
     assert response.status_code == 404
 
-def test_cleanup_campaign_jobs_invalid_data():
+def test_cleanup_campaign_jobs_invalid_data(client):
     """Test cleanup with invalid data."""
     # Missing days parameter
     response = client.post("/api/v1/campaigns/test-id/cleanup", json={})
@@ -110,13 +81,13 @@ def test_cleanup_campaign_jobs_invalid_data():
     response = client.post("/api/v1/campaigns/test-id/cleanup", json={"days": -1})
     assert response.status_code == 400
 
-def test_get_campaign_results_not_found():
+def test_get_campaign_results_not_found(client):
     """Test getting results for a non-existent campaign."""
     response = client.get("/api/v1/campaigns/non-existent-id/results")
     
     assert response.status_code == 404
 
-def test_campaign_workflow(sample_campaign_data):
+def test_campaign_workflow(sample_campaign_data, client):
     """Test a complete campaign workflow."""
     # 1. Create campaign
     response = client.post("/api/v1/campaigns/", json=sample_campaign_data)
@@ -161,7 +132,7 @@ def test_campaign_workflow(sample_campaign_data):
     response = client.get(f"/api/v1/campaigns/{campaign_id}/results")
     assert response.status_code == 404  # No completed jobs
 
-def test_campaign_validation():
+def test_campaign_validation(client):
     """Test campaign validation."""
     # Missing required fields
     response = client.post("/api/v1/campaigns/", json={})

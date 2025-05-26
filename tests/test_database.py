@@ -1,41 +1,23 @@
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.core.database import Base, get_db
-from app.models.job import Job, JobStatus
+from app.models.job import Job, JobStatus, JobType
 from app.main import app
 from fastapi.testclient import TestClient
 
-# Test database
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base.metadata.create_all(bind=engine)
-
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-app.dependency_overrides[get_db] = override_get_db
-
-def test_create_job():
-    db = TestingSessionLocal()
-    
+def test_create_job(db_session):
     # Create a test job
     job = Job(
         name="Test Job",
         description="Test Description",
+        job_type=JobType.GENERAL,
         status=JobStatus.PENDING,
         task_id="test-task-123"
     )
     
-    db.add(job)
-    db.commit()
-    db.refresh(job)
+    db_session.add(job)
+    db_session.commit()
+    db_session.refresh(job)
     
     # Verify job was created
     assert job.id is not None
@@ -43,9 +25,8 @@ def test_create_job():
     assert job.status == JobStatus.PENDING
     
     # Clean up
-    db.delete(job)
-    db.commit()
-    db.close()
+    db_session.delete(job)
+    db_session.commit()
 
 def test_job_status_enum():
     assert JobStatus.PENDING.value == "pending"

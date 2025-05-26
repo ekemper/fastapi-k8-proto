@@ -7,9 +7,8 @@ including database sessions, test data, and common testing scenarios.
 
 import pytest
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
@@ -20,49 +19,27 @@ from app.models.campaign_status import CampaignStatus
 from app.models.job import Job, JobStatus, JobType
 from tests.helpers.database_helpers import DatabaseHelpers
 
-# Test database configuration
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_fixtures.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Create all tables
-Base.metadata.create_all(bind=engine)
-
-def override_get_db():
-    """Override the database dependency for testing."""
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-# Override the database dependency
-app.dependency_overrides[get_db] = override_get_db
-
-
 # ---------------------------------------------------------------------------
 # Database Session Fixtures
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="function")
-def test_db_session():
+def test_db_session(test_db_session):
     """
     Create a fresh database session for each test.
     
     This fixture provides proper transaction isolation and cleanup.
     Each test gets a clean database state.
     """
-    db = TestingSessionLocal()
     try:
-        yield db
+        yield test_db_session
     finally:
         # Rollback any uncommitted transactions
-        db.rollback()
+        test_db_session.rollback()
         # Clean up test data
-        db.query(Job).delete()
-        db.query(Campaign).delete()
-        db.commit()
-        db.close()
+        test_db_session.query(Job).delete()
+        test_db_session.query(Campaign).delete()
+        test_db_session.commit()
 
 
 @pytest.fixture(scope="function")
@@ -103,7 +80,7 @@ def api_client():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def sample_campaign_data():
+def sample_campaign_data(organization):
     """
     Valid campaign creation data for testing.
     
@@ -115,7 +92,7 @@ def sample_campaign_data():
         "fileName": "test_leads.csv",
         "totalRecords": 100,
         "url": "https://app.apollo.io/test-campaign",
-        "organization_id": "test-org-123"
+        "organization_id": organization.id
     }
 
 
@@ -164,7 +141,7 @@ def invalid_campaign_data():
 
 
 @pytest.fixture
-def existing_campaign(test_db_session):
+def existing_campaign(test_db_session, organization):
     """
     Create a pre-existing campaign in the database for testing.
     
@@ -179,7 +156,7 @@ def existing_campaign(test_db_session):
         fileName="existing_leads.csv",
         totalRecords=250,
         url="https://app.apollo.io/existing-campaign",
-        organization_id="existing-org-456"
+        organization_id=organization.id
     )
     
     test_db_session.add(campaign)
@@ -190,15 +167,15 @@ def existing_campaign(test_db_session):
 
 
 @pytest.fixture
-def multiple_campaigns(test_db_session):
+def multiple_campaigns(test_db_session, multiple_organizations):
     """
-    Create multiple campaigns for list testing and pagination.
+    Create multiple campaigns with different organizations for testing variety.
     
-    Returns a list of campaigns with different statuses and properties.
+    Returns a list of campaigns with different statuses, properties, and organizations.
     """
     campaigns = []
+    orgs = multiple_organizations
     
-    # Create campaigns with different statuses and properties
     campaign_data = [
         {
             "name": "First Campaign",
@@ -207,7 +184,7 @@ def multiple_campaigns(test_db_session):
             "fileName": "first.csv",
             "totalRecords": 50,
             "url": "https://app.apollo.io/first",
-            "organization_id": "org-1"
+            "organization_id": orgs[0].id  # Organization 1
         },
         {
             "name": "Second Campaign",
@@ -216,7 +193,7 @@ def multiple_campaigns(test_db_session):
             "fileName": "second.csv",
             "totalRecords": 100,
             "url": "https://app.apollo.io/second",
-            "organization_id": "org-2"
+            "organization_id": orgs[1].id  # Organization 2
         },
         {
             "name": "Third Campaign",
@@ -225,8 +202,8 @@ def multiple_campaigns(test_db_session):
             "fileName": "third.csv",
             "totalRecords": 75,
             "url": "https://app.apollo.io/third",
-            "organization_id": "org-1",
-            "completed_at": datetime.utcnow()
+            "organization_id": orgs[0].id,  # Organization 1
+            "completed_at": datetime.utcnow().replace(tzinfo=timezone.utc)
         },
         {
             "name": "Fourth Campaign",
@@ -235,8 +212,8 @@ def multiple_campaigns(test_db_session):
             "fileName": "fourth.csv",
             "totalRecords": 200,
             "url": "https://app.apollo.io/fourth",
-            "organization_id": "org-3",
-            "failed_at": datetime.utcnow(),
+            "organization_id": orgs[2].id,  # Organization 3
+            "failed_at": datetime.utcnow().replace(tzinfo=timezone.utc),
             "status_error": "Test error message"
         },
         {
@@ -246,10 +223,9 @@ def multiple_campaigns(test_db_session):
             "fileName": "fifth.csv",
             "totalRecords": 150,
             "url": "https://app.apollo.io/fifth",
-            "organization_id": "org-2"
+            "organization_id": orgs[1].id  # Organization 2
         }
     ]
-    
     for data in campaign_data:
         campaign = Campaign(
             id=str(uuid.uuid4()),
@@ -257,18 +233,14 @@ def multiple_campaigns(test_db_session):
         )
         test_db_session.add(campaign)
         campaigns.append(campaign)
-    
     test_db_session.commit()
-    
-    # Refresh all campaigns
     for campaign in campaigns:
         test_db_session.refresh(campaign)
-    
     return campaigns
 
 
 @pytest.fixture
-def campaign_with_jobs(test_db_session):
+def campaign_with_jobs(test_db_session, organization):
     """
     Create a campaign with associated jobs for testing job relationships.
     
@@ -283,7 +255,7 @@ def campaign_with_jobs(test_db_session):
         fileName="jobs_test.csv",
         totalRecords=300,
         url="https://app.apollo.io/jobs-test",
-        organization_id="jobs-org-789"
+        organization_id=organization.id
     )
     
     test_db_session.add(campaign)
@@ -300,7 +272,7 @@ def campaign_with_jobs(test_db_session):
             "status": JobStatus.COMPLETED,
             "task_id": f"fetch-{uuid.uuid4()}",
             "result": "Successfully fetched 300 leads",
-            "completed_at": datetime.utcnow() - timedelta(hours=2)
+            "completed_at": datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(hours=2)
         },
         {
             "name": "Enrich Leads Job",
@@ -325,7 +297,7 @@ def campaign_with_jobs(test_db_session):
             "status": JobStatus.FAILED,
             "task_id": f"failed-{uuid.uuid4()}",
             "error": "API rate limit exceeded",
-            "completed_at": datetime.utcnow() - timedelta(hours=1)
+            "completed_at": datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(hours=1)
         }
     ]
     
@@ -347,7 +319,7 @@ def campaign_with_jobs(test_db_session):
 
 
 @pytest.fixture
-def old_jobs_for_cleanup(test_db_session):
+def old_jobs_for_cleanup(test_db_session, organization):
     """
     Create old jobs for cleanup testing.
     
@@ -362,8 +334,8 @@ def old_jobs_for_cleanup(test_db_session):
         fileName="old_cleanup.csv",
         totalRecords=500,
         url="https://app.apollo.io/old-cleanup",
-        organization_id="cleanup-org-999",
-        completed_at=datetime.utcnow() - timedelta(days=45)  # 45 days old
+        organization_id=organization.id,
+        completed_at=datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=45)  # 45 days old
     )
     
     test_db_session.add(old_campaign)
@@ -380,7 +352,7 @@ def old_jobs_for_cleanup(test_db_session):
             "status": JobStatus.COMPLETED,
             "task_id": f"old-fetch-{uuid.uuid4()}",
             "result": "Old completed job",
-            "completed_at": datetime.utcnow() - timedelta(days=35)
+            "completed_at": datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=35)
         },
         {
             "name": "Old Failed Job",
@@ -389,7 +361,7 @@ def old_jobs_for_cleanup(test_db_session):
             "status": JobStatus.FAILED,
             "task_id": f"old-failed-{uuid.uuid4()}",
             "error": "Old error message",
-            "completed_at": datetime.utcnow() - timedelta(days=40)
+            "completed_at": datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=40)
         }
     ]
     
@@ -410,8 +382,8 @@ def old_jobs_for_cleanup(test_db_session):
         fileName="recent.csv",
         totalRecords=100,
         url="https://app.apollo.io/recent",
-        organization_id="recent-org-111",
-        completed_at=datetime.utcnow() - timedelta(days=5)  # 5 days old
+        organization_id=organization.id,
+        completed_at=datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=5)  # 5 days old
     )
     
     test_db_session.add(recent_campaign)
@@ -428,7 +400,7 @@ def old_jobs_for_cleanup(test_db_session):
             "status": JobStatus.COMPLETED,
             "task_id": f"recent-{uuid.uuid4()}",
             "result": "Recent completed job",
-            "completed_at": datetime.utcnow() - timedelta(days=3)
+            "completed_at": datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=3)
         }
     ]
     
@@ -459,7 +431,7 @@ def old_jobs_for_cleanup(test_db_session):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def campaign_update_data():
+def campaign_update_data(organization):
     """
     Valid data for testing campaign updates.
     
@@ -480,12 +452,12 @@ def campaign_update_data():
             "fileName": "updated_file.csv",
             "totalRecords": 500,
             "url": "https://app.apollo.io/updated",
-            "organization_id": "updated-org-999"
+            "organization_id": organization.id
         },
         "error_status_update": {
             "status": CampaignStatus.FAILED,
             "status_error": "Test error occurred",
-            "failed_at": datetime.utcnow()
+            "failed_at": datetime.utcnow().replace(tzinfo=timezone.utc)
         }
     }
 
@@ -508,7 +480,7 @@ def pagination_test_data():
 
 
 @pytest.fixture
-def search_filter_data():
+def search_filter_data(organization):
     """
     Data for testing search and filtering functionality.
     
@@ -516,15 +488,15 @@ def search_filter_data():
     """
     return {
         "by_status": {"status": CampaignStatus.CREATED},
-        "by_organization": {"organization_id": "org-1"},
+        "by_organization": {"organization_id": organization.id},
         "by_name_pattern": {"name_contains": "Test"},
         "by_date_range": {
-            "created_after": datetime.utcnow() - timedelta(days=7),
-            "created_before": datetime.utcnow()
+            "created_after": datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=7),
+            "created_before": datetime.utcnow().replace(tzinfo=timezone.utc)
         },
         "multiple_filters": {
             "status": CampaignStatus.COMPLETED,
-            "organization_id": "org-1"
+            "organization_id": organization.id
         }
     }
 
@@ -534,42 +506,37 @@ def search_filter_data():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def large_dataset_campaigns(test_db_session):
+def large_dataset_campaigns(test_db_session, multiple_organizations):
     """
-    Create a large dataset of campaigns for performance testing.
+    Create a large dataset of campaigns with multiple organizations for performance testing.
     
-    Creates 50 campaigns with various properties for load testing.
+    Creates 50 campaigns with various properties and organizations for load testing.
     """
     campaigns = []
+    orgs = multiple_organizations
     
     for i in range(50):
+        org_index = i % len(orgs)  # Cycle through organizations
         campaign = Campaign(
             id=str(uuid.uuid4()),
             name=f"Load Test Campaign {i+1}",
             description=f"Campaign {i+1} for load testing with index {i}",
-            status=CampaignStatus.CREATED if i % 4 == 0 else 
-                   CampaignStatus.RUNNING if i % 4 == 1 else
-                   CampaignStatus.COMPLETED if i % 4 == 2 else
+            status=CampaignStatus.CREATED if i % 4 == 0 else \
+                   CampaignStatus.RUNNING if i % 4 == 1 else\
+                   CampaignStatus.COMPLETED if i % 4 == 2 else\
                    CampaignStatus.FAILED,
             fileName=f"load_test_{i+1}.csv",
             totalRecords=(i + 1) * 10,
             url=f"https://app.apollo.io/load-test-{i+1}",
-            organization_id=f"load-org-{(i % 5) + 1}"  # 5 different orgs
+            organization_id=orgs[org_index].id
         )
-        
         test_db_session.add(campaign)
         campaigns.append(campaign)
-        
-        # Commit in batches to avoid memory issues
         if (i + 1) % 10 == 0:
             test_db_session.commit()
-    
     test_db_session.commit()
-    
-    # Refresh all campaigns
     for campaign in campaigns:
         test_db_session.refresh(campaign)
-    
     return campaigns
 
 
@@ -593,6 +560,10 @@ def database_error_scenarios():
             "url": "https://test.com"
         },
         "foreign_key_violation": {
+            "name": "Foreign Key Test",
+            "fileName": "foreign_key.csv",
+            "totalRecords": 100,
+            "url": "https://test.com",
             "organization_id": "non-existent-org-id"
         },
         "constraint_violation": {
@@ -630,7 +601,7 @@ def concurrent_access_data():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def auto_cleanup_database():
+def auto_cleanup_database(test_db_session):
     """
     Automatically clean database after each test.
     
@@ -640,27 +611,26 @@ def auto_cleanup_database():
     yield
     
     # Clean up after test
-    db = TestingSessionLocal()
     try:
-        db.query(Job).delete()
-        db.query(Campaign).delete()
-        db.commit()
-    finally:
-        db.close()
+        test_db_session.query(Job).delete()
+        test_db_session.query(Campaign).delete()
+        test_db_session.commit()
+    except Exception:
+        test_db_session.rollback()
 
 
 @pytest.fixture
-def transaction_rollback_session():
+def transaction_rollback_session(test_db_session):
     """
     Database session that automatically rolls back transactions.
     
     Useful for testing database operations without persisting changes.
     """
-    db = TestingSessionLocal()
-    transaction = db.begin()
+    # Use nested transaction (savepoint) if transaction already exists
+    transaction = test_db_session.begin_nested()
     
     try:
-        yield db
+        yield test_db_session
     finally:
         try:
             if transaction.is_active:
@@ -668,8 +638,6 @@ def transaction_rollback_session():
         except Exception:
             # Transaction might already be closed
             pass
-        finally:
-            db.close()
 
 
 @pytest.fixture

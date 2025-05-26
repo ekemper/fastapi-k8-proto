@@ -18,7 +18,7 @@ class Campaign(Base):
     status = Column(Enum(CampaignStatus), default=CampaignStatus.CREATED, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=True)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False)
     status_message = Column(Text, nullable=True)
     status_error = Column(Text, nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)

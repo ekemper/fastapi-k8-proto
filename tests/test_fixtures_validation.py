@@ -6,7 +6,7 @@ and that there's no data leakage between tests.
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
@@ -18,14 +18,15 @@ from tests.fixtures.campaign_fixtures import *
 # Database Session Fixture Tests
 # ---------------------------------------------------------------------------
 
-def test_test_db_session_isolation(test_db_session):
+def test_test_db_session_isolation(test_db_session, organization):
     """Test that database session provides proper isolation."""
     # Create a campaign
     campaign = Campaign(
         name="Isolation Test",
         fileName="isolation.csv",
         totalRecords=100,
-        url="https://test.com"
+        url="https://test.com",
+        organization_id=organization.id
     )
     test_db_session.add(campaign)
     test_db_session.commit()
@@ -41,7 +42,7 @@ def test_test_db_session_isolation_second_test(test_db_session):
     assert test_db_session.query(Job).count() == 0
 
 
-def test_clean_database_fixture(clean_database):
+def test_clean_database_fixture(clean_database, organization):
     """Test that clean_database fixture provides guaranteed clean state."""
     # Should start clean
     assert clean_database.query(Campaign).count() == 0
@@ -52,7 +53,8 @@ def test_clean_database_fixture(clean_database):
         name="Clean Test",
         fileName="clean.csv",
         totalRecords=50,
-        url="https://test.com"
+        url="https://test.com",
+        organization_id=organization.id
     )
     clean_database.add(campaign)
     clean_database.commit()
@@ -68,13 +70,16 @@ def test_clean_database_fixture_second_test(clean_database):
     assert clean_database.query(Job).count() == 0
 
 
-def test_db_helpers_fixture(db_helpers):
+def test_db_helpers_fixture(db_helpers, organization):
     """Test that db_helpers fixture works correctly."""
     # Should be able to use helper functions
     assert db_helpers.count_campaigns_in_db() == 0
     
     # Create campaign using helpers
-    campaign = db_helpers.create_test_campaign_in_db({"name": "Helper Test"})
+    campaign = db_helpers.create_test_campaign_in_db({
+        "name": "Helper Test",
+        "organization_id": organization.id
+    })
     
     # Verify using helpers
     assert db_helpers.count_campaigns_in_db() == 1
@@ -198,13 +203,13 @@ def test_old_jobs_for_cleanup_fixture(old_jobs_for_cleanup, test_db_session):
     # Old jobs should be old enough for cleanup
     for job in data["old_jobs"]:
         if job.completed_at:
-            age = datetime.utcnow() - job.completed_at
+            age = datetime.utcnow().replace(tzinfo=timezone.utc) - job.completed_at
             assert age.days > 30  # Should be older than 30 days
     
     # Recent jobs should not be old enough for cleanup
     for job in data["recent_jobs"]:
         if job.completed_at:
-            age = datetime.utcnow() - job.completed_at
+            age = datetime.utcnow().replace(tzinfo=timezone.utc) - job.completed_at
             assert age.days < 30  # Should be newer than 30 days
 
 
@@ -290,14 +295,15 @@ def test_concurrent_access_data_fixture(concurrent_access_data):
 # Cleanup and Utility Fixture Tests
 # ---------------------------------------------------------------------------
 
-def test_transaction_rollback_session_fixture(transaction_rollback_session):
+def test_transaction_rollback_session_fixture(transaction_rollback_session, organization):
     """Test that transaction_rollback_session rolls back changes."""
     # Create data in rollback session
     campaign = Campaign(
         name="Rollback Test",
         fileName="rollback.csv",
         totalRecords=100,
-        url="https://test.com"
+        url="https://test.com",
+        organization_id=organization.id
     )
     transaction_rollback_session.add(campaign)
     transaction_rollback_session.commit()
@@ -312,7 +318,7 @@ def test_transaction_rollback_session_rollback_verification(test_db_session):
     assert test_db_session.query(Campaign).count() == 0
 
 
-def test_isolated_test_environment_fixture(isolated_test_environment):
+def test_isolated_test_environment_fixture(isolated_test_environment, organization):
     """Test that isolated_test_environment provides maximum isolation."""
     # Should start completely clean
     assert isolated_test_environment.query(Campaign).count() == 0
@@ -323,7 +329,8 @@ def test_isolated_test_environment_fixture(isolated_test_environment):
         name="Isolated Test",
         fileName="isolated.csv",
         totalRecords=100,
-        url="https://test.com"
+        url="https://test.com",
+        organization_id=organization.id
     )
     isolated_test_environment.add(campaign)
     isolated_test_environment.commit()
@@ -380,21 +387,20 @@ def test_fixture_data_consistency(
     assert db_count == total_expected
 
 
-def test_fixture_cleanup_effectiveness():
+def test_fixture_cleanup_effectiveness(test_db_session):
     """Test that fixture cleanup prevents data leakage."""
     # This test should run after others and see clean state
-    db = TestingSessionLocal()
     try:
         # Should be clean due to auto_cleanup_database fixture
-        campaign_count = db.query(Campaign).count()
-        job_count = db.query(Job).count()
+        campaign_count = test_db_session.query(Campaign).count()
+        job_count = test_db_session.query(Job).count()
         
         # Note: This might not be 0 if other tests are running concurrently
         # but it validates the cleanup mechanism works
         assert campaign_count >= 0  # At least not negative
         assert job_count >= 0  # At least not negative
     finally:
-        db.close()
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -444,14 +450,15 @@ def test_fixture_memory_usage(multiple_campaigns, campaign_with_jobs):
 # Edge Case Tests
 # ---------------------------------------------------------------------------
 
-def test_fixture_edge_cases_empty_data(test_db_session):
+def test_fixture_edge_cases_empty_data(test_db_session, organization):
     """Test fixtures handle edge cases properly."""
     # Test with minimal data
     minimal_campaign = Campaign(
         name="Minimal",
         fileName="min.csv",
         totalRecords=1,
-        url="https://min.com"
+        url="https://min.com",
+        organization_id=organization.id
     )
     test_db_session.add(minimal_campaign)
     test_db_session.commit()
@@ -459,14 +466,15 @@ def test_fixture_edge_cases_empty_data(test_db_session):
     assert minimal_campaign.id is not None
 
 
-def test_fixture_unicode_handling(test_db_session):
+def test_fixture_unicode_handling(test_db_session, organization):
     """Test that fixtures handle unicode data correctly."""
     unicode_campaign = Campaign(
         name="测试活动 🚀",
         description="Тест кампания with émojis 🎯",
         fileName="unicode_测试.csv",
         totalRecords=100,
-        url="https://test.com/测试"
+        url="https://test.com/测试",
+        organization_id=organization.id
     )
     test_db_session.add(unicode_campaign)
     test_db_session.commit()
@@ -476,14 +484,15 @@ def test_fixture_unicode_handling(test_db_session):
     assert "émojis" in unicode_campaign.description
 
 
-def test_fixture_boundary_values(test_db_session):
+def test_fixture_boundary_values(test_db_session, organization):
     """Test fixtures with boundary values."""
     # Test with maximum values
     max_campaign = Campaign(
         name="x" * 255,  # Maximum name length
         fileName="max.csv",
         totalRecords=999999,  # Large number
-        url="https://test.com"
+        url="https://test.com",
+        organization_id=organization.id
     )
     test_db_session.add(max_campaign)
     test_db_session.commit()
