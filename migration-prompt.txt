@@ -1,15 +1,15 @@
 please review these files from the leadGen project :
 
-/Users/ek/dev/leadGen/server/api/services/organization_service.py
-/Users/ek/dev/leadGen/server/models/organization.py
+/Users/ek/dev/leadGen/server/api/services/lead_service.py
+/Users/ek/dev/leadGen/server/models/lead.py
 
-the depricated route definitions for organizations from the old app are in depricated-routes.py
+the depricated route definitions for leads from the old app are in depricated-routes.py
 
 -----------------
 
 the logic in these files is from another app ( flask )
 
-we're introducing logic from the organizations to this app
+we're introducing logic from the leads to this app
 
 i need to integrate the business logic from the routes, service, model, and api integration tests in to this app. 
 
@@ -33,4 +33,4 @@ when createing and running migrations, run the commands in the api docker contai
 
 lets leave the unit tests out of the picture for the moment - I want a comprehensive set of functional api layer tests - the tests should hit the api and then check the database for results. 
 
-please create a md document in the root of the project called organization-business-logic-migration.md and put the instructions there for safe keeping
+please create a md document in the root of the project called leads-business-logic-migration.md and put the instructions there for safe keeping
