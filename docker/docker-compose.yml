@@ -88,6 +88,28 @@ services:
     depends_on:
       - redis
     command: celery -A app.workers.celery_app flower --port=5555
-
+  frontend:
+      build:
+        context: ./frontend
+        dockerfile: Dockerfile
+        target: development
+      ports:
+        - "5173:5173"
+      depends_on:
+        - backend
+      restart: unless-stopped
+      healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:5173"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+        start_period: 15s
+      volumes:
+        - ./frontend:/app
+        - /app/node_modules
+      environment:
+        - NODE_ENV=development
+      command: ["npm", "run", "dev", "--", "--host", "--port", "5173"]
+      
 volumes:
   postgres_data: 

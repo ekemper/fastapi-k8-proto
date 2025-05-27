@@ -1,27 +1,30 @@
 
-now that we have protected endpoints, and an auth service, we need to update the api tests
+<<TASK GOES HERE>>
 
 
-pleaes create an extreamly detailed set of step by step instructions for an ai agent to perform a review of the api testing  logic ( routes, service, model, tests) . 
+pleaes create an extreamly detailed set of step by step instructions for an ai agent to perform this task
 
+The current patterns, conventions, and configuration for this app (fastapi-k8-proto) should be maintained at all cost. 
 
-the current patterns, conventions, and configuration for this app (fastapi-k8-proto) should be maintained  at all cost. 
+The instructions should break the process down in to discrete, testable steps.
 
-the instructions should break the process down in to discrete, testable steps .
+Each step should have a clear goal, a clear set of actions to be performed by the ai agent, and a strategy for confirming that the actions were sucessfull. ( either running tests, curling an endpoint, or checking for specific rows in a database table. )
 
-each step should have a clear goal, a clear set of actions to be performed by the ai agent, and a strategy for confirming that the actions were sucessfull. ( either running tests, curling an endpoint, or checking for specific rows in a database table. )
+In cases where there are code edits, the ai agent is to perform the changes.
 
-in cases where there are code edits, the ai agent is to perform the changes
+In cases where there are commands to be run, the ai agent is to run them in the chat window context and parse the output for errors and other actionable information.
 
-in cases where there are commands to be run, the ai agent is to run them in the chat window context and parse the output for errors and other actionable information
+When createing and running migrations, run the commands in the api docker container.
 
-when createing and running migrations, run the commands in the api docker container
+Pay particular attention to the api testing  logic ( routes, service, model, tests). Always run the tests after making changes to the api.
 
-lets leave the unit tests out of the picture for the moment - I want a comprehensive set of functional api layer tests - the tests should hit the api and then check the database for results. 
+When running individual tests, run them in the api docker container: use ' Docker exec api pytest...'
 
-please create a md document in the root of the project and put the instructions there for safe keeping
+When running the whole suite of tests, use 'make docker-test'.
 
+Lets leave the unit tests out of the picture for the moment - we need a comprehensive set of functional api layer tests - the tests should hit the api and then check the database for results. 
 
+When planning code edits, plan to update the tests immediately.
 
+For the plan you create, please create a md document in the root of the project and put the instructions there for safe keeping
 
-docker compose exec api pytest
