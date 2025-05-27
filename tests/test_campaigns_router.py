@@ -20,9 +20,9 @@ def sample_campaign_data(organization):
         "url": "https://app.apollo.io/test-search"
     }
 
-def test_create_campaign(sample_campaign_data, client):
+def test_create_campaign(sample_campaign_data, authenticated_client):
     """Test creating a new campaign."""
-    response = client.post("/api/v1/campaigns/", json=sample_campaign_data)
+    response = authenticated_client.post("/api/v1/campaigns/", json=sample_campaign_data)
     
     assert response.status_code == 201
     data = response.json()
@@ -37,81 +37,81 @@ def test_create_campaign(sample_campaign_data, client):
     assert "created_at" in data
     assert "updated_at" in data
 
-def test_list_campaigns(client):
+def test_list_campaigns(authenticated_client):
     """Test listing campaigns."""
-    response = client.get("/api/v1/campaigns/")
+    response = authenticated_client.get("/api/v1/campaigns/")
     
     assert response.status_code == 200
     data = response.json()
     
     assert isinstance(data, list)
 
-def test_get_campaign_not_found(client):
+def test_get_campaign_not_found(authenticated_client):
     """Test getting a non-existent campaign."""
-    response = client.get("/api/v1/campaigns/non-existent-id")
+    response = authenticated_client.get("/api/v1/campaigns/non-existent-id")
     
     assert response.status_code == 404
     data = response.json()
     assert "not found" in data["detail"].lower()
 
-def test_get_campaign_details_not_found(client):
+def test_get_campaign_details_not_found(authenticated_client):
     """Test getting details for a non-existent campaign."""
-    response = client.get("/api/v1/campaigns/non-existent-id/details")
+    response = authenticated_client.get("/api/v1/campaigns/non-existent-id/details")
     
     assert response.status_code == 404
 
-def test_update_campaign_not_found(client):
+def test_update_campaign_not_found(authenticated_client):
     """Test updating a non-existent campaign."""
     update_data = {"name": "Updated Name"}
-    response = client.patch("/api/v1/campaigns/non-existent-id", json=update_data)
+    response = authenticated_client.patch("/api/v1/campaigns/non-existent-id", json=update_data)
     
     assert response.status_code == 404
 
-def test_start_campaign_not_found(client):
+def test_start_campaign_not_found(authenticated_client):
     """Test starting a non-existent campaign."""
-    response = client.post("/api/v1/campaigns/non-existent-id/start", json={})
+    response = authenticated_client.post("/api/v1/campaigns/non-existent-id/start", json={})
     
     assert response.status_code == 404
 
-def test_cleanup_campaign_jobs_invalid_data(client):
+def test_cleanup_campaign_jobs_invalid_data(authenticated_client):
     """Test cleanup with invalid data."""
     # Missing days parameter
-    response = client.post("/api/v1/campaigns/test-id/cleanup", json={})
+    response = authenticated_client.post("/api/v1/campaigns/test-id/cleanup", json={})
     assert response.status_code == 400
     
     # Invalid days value
-    response = client.post("/api/v1/campaigns/test-id/cleanup", json={"days": -1})
+    response = authenticated_client.post("/api/v1/campaigns/test-id/cleanup", json={"days": -1})
     assert response.status_code == 400
 
-def test_get_campaign_results_not_found(client):
+def test_get_campaign_results_not_found(authenticated_client):
     """Test getting results for a non-existent campaign."""
-    response = client.get("/api/v1/campaigns/non-existent-id/results")
+    response = authenticated_client.get("/api/v1/campaigns/non-existent-id/results")
     
     assert response.status_code == 404
 
-def test_campaign_workflow(sample_campaign_data, client):
+def test_campaign_workflow(sample_campaign_data, authenticated_client):
     """Test a complete campaign workflow."""
     # 1. Create campaign
-    response = client.post("/api/v1/campaigns/", json=sample_campaign_data)
+    response = authenticated_client.post("/api/v1/campaigns/", json=sample_campaign_data)
     assert response.status_code == 201
     campaign = response.json()
     campaign_id = campaign["id"]
     
     # 2. Get campaign
-    response = client.get(f"/api/v1/campaigns/{campaign_id}")
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}")
     assert response.status_code == 200
     retrieved_campaign = response.json()
     assert retrieved_campaign["id"] == campaign_id
     
     # 3. Update campaign
     update_data = {"name": "Updated Test Campaign"}
-    response = client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
+    response = authenticated_client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
     assert response.status_code == 200
     updated_campaign = response.json()
     assert updated_campaign["name"] == "Updated Test Campaign"
     
     # 4. Get campaign details
-    response = client.get(f"/api/v1/campaigns/{campaign_id}/details")
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/details")
     assert response.status_code == 200
     details = response.json()
     assert "data" in details
@@ -120,24 +120,24 @@ def test_campaign_workflow(sample_campaign_data, client):
     assert "instantly_analytics" in details["data"]
     
     # 5. Start campaign (this will fail due to missing dependencies, but should return proper error)
-    response = client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
+    response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
     # This might fail due to missing Apollo/Instantly services, but should not crash
     assert response.status_code in [200, 500]  # Either success or expected service error
     
     # 6. Cleanup jobs
-    response = client.post(f"/api/v1/campaigns/{campaign_id}/cleanup", json={"days": 30})
+    response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/cleanup", json={"days": 30})
     assert response.status_code == 200
     cleanup_result = response.json()
     assert "message" in cleanup_result
     
     # 7. Get results (should return 404 since no completed jobs)
-    response = client.get(f"/api/v1/campaigns/{campaign_id}/results")
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/results")
     assert response.status_code == 404  # No completed jobs
 
-def test_campaign_validation(client):
+def test_campaign_validation(authenticated_client):
     """Test campaign validation."""
     # Missing required fields
-    response = client.post("/api/v1/campaigns/", json={})
+    response = authenticated_client.post("/api/v1/campaigns/", json={})
     assert response.status_code == 422  # Validation error
     
     # Invalid data types
@@ -148,5 +148,5 @@ def test_campaign_validation(client):
         "totalRecords": -1,  # Negative records should fail
         "url": ""  # Empty URL should fail
     }
-    response = client.post("/api/v1/campaigns/", json=invalid_data)
+    response = authenticated_client.post("/api/v1/campaigns/", json=invalid_data)
     assert response.status_code == 422  # Validation error 

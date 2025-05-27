@@ -107,30 +107,30 @@ def test_create_organization_success(authenticated_client, db_session, organizat
         "description": organization_payload["description"]
     })
 
-def test_create_organization_validation_errors(db_session, client):
+def test_create_organization_validation_errors(authenticated_client, db_session):
     """Test validation errors for invalid organization data."""
     # Test missing name
-    response = client.post("/api/v1/organizations/", json={"description": "No name"})
+    response = authenticated_client.post("/api/v1/organizations/", json={"description": "No name"})
     assert response.status_code == 422
     
     # Test short name
-    response = client.post("/api/v1/organizations/", json={"name": "AB", "description": "Short name"})
+    response = authenticated_client.post("/api/v1/organizations/", json={"name": "AB", "description": "Short name"})
     assert response.status_code == 422
     
     # Test missing description
-    response = client.post("/api/v1/organizations/", json={"name": "Valid Name"})
+    response = authenticated_client.post("/api/v1/organizations/", json={"name": "Valid Name"})
     assert response.status_code == 422
     
     # Verify no database records created on validation failures
     verify_no_organization_in_db(db_session)
 
-def test_create_organization_sanitization(db_session, client):
+def test_create_organization_sanitization(authenticated_client, db_session):
     """Test input sanitization for XSS prevention."""
     payload = {
         "name": "<script>alert('XSS')</script>Test Org",
         "description": "<img src=x onerror=alert('XSS')>Description"
     }
-    response = client.post("/api/v1/organizations/", json=payload)
+    response = authenticated_client.post("/api/v1/organizations/", json=payload)
     
     assert response.status_code == 201
     data = response.json()
@@ -144,13 +144,13 @@ def test_create_organization_sanitization(db_session, client):
     assert "<script>" not in org.name
     assert "<img" not in org.description
 
-def test_create_organization_special_characters(db_session, client):
+def test_create_organization_special_characters(authenticated_client, db_session):
     """Test organization creation with special characters."""
     payload = {
         "name": "Organization & Co. (Test) #1",
         "description": "Special chars: !@#$%^&*()_+-=[]{}|;:,.<>?/~`"
     }
-    response = client.post("/api/v1/organizations/", json=payload)
+    response = authenticated_client.post("/api/v1/organizations/", json=payload)
     
     assert response.status_code == 201
     data = response.json()
@@ -165,9 +165,9 @@ def test_create_organization_special_characters(db_session, client):
 # Organization Listing Tests
 # ---------------------------------------------------------------------------
 
-def test_list_organizations_empty(db_session, client):
+def test_list_organizations_empty(authenticated_client, db_session):
     """Test empty organization list returns correctly."""
-    response = client.get("/api/v1/organizations/")
+    response = authenticated_client.get("/api/v1/organizations/")
     
     assert response.status_code == 200
     data = response.json()
@@ -177,19 +177,19 @@ def test_list_organizations_empty(db_session, client):
     # Verify database is empty
     verify_no_organization_in_db(db_session)
 
-def test_list_organizations_multiple(db_session, organization_payload, client):
+def test_list_organizations_multiple(authenticated_client, db_session, organization_payload):
     """Create multiple organizations and verify list endpoint returns all."""
     created_orgs = []
     
     # Create 3 organizations
     for i in range(3):
         payload = {**organization_payload, "name": f"Organization {i}"}
-        response = client.post("/api/v1/organizations/", json=payload)
+        response = authenticated_client.post("/api/v1/organizations/", json=payload)
         assert response.status_code == 201
         created_orgs.append(response.json())
     
     # List organizations
-    response = client.get("/api/v1/organizations/")
+    response = authenticated_client.get("/api/v1/organizations/")
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 3
@@ -203,18 +203,18 @@ def test_list_organizations_multiple(db_session, organization_payload, client):
     db_count = db_session.query(Organization).count()
     assert db_count == 3
 
-def test_list_organizations_order(db_session, organization_payload, client):
+def test_list_organizations_order(authenticated_client, db_session, organization_payload):
     """Test organizations are returned in some consistent order."""
     # Create organizations
     created_orgs = []
     for i in range(3):
         payload = {**organization_payload, "name": f"Org {i}"}
-        response = client.post("/api/v1/organizations/", json=payload)
+        response = authenticated_client.post("/api/v1/organizations/", json=payload)
         assert response.status_code == 201
         created_orgs.append(response.json())
     
     # List organizations
-    response = client.get("/api/v1/organizations/")
+    response = authenticated_client.get("/api/v1/organizations/")
     assert response.status_code == 200
     data = response.json()
     
@@ -238,16 +238,16 @@ def test_list_organizations_order(db_session, organization_payload, client):
 # Organization Retrieval Tests
 # ---------------------------------------------------------------------------
 
-def test_get_organization_success(db_session, organization_payload, client):
+def test_get_organization_success(authenticated_client, db_session, organization_payload):
     """Test successful retrieval of existing organization."""
     # Create organization
-    create_response = client.post("/api/v1/organizations/", json=organization_payload)
+    create_response = authenticated_client.post("/api/v1/organizations/", json=organization_payload)
     assert create_response.status_code == 201
     created_org = create_response.json()
     org_id = created_org["id"]
     
     # Retrieve organization
-    response = client.get(f"/api/v1/organizations/{org_id}")
+    response = authenticated_client.get(f"/api/v1/organizations/{org_id}")
     assert response.status_code == 200
     data = response.json()
     
@@ -263,19 +263,19 @@ def test_get_organization_success(db_session, organization_payload, client):
     assert data["name"] == db_org.name
     assert data["description"] == db_org.description
 
-def test_get_organization_not_found(db_session, client):
+def test_get_organization_not_found(authenticated_client, db_session):
     """Test 404 error for non-existent organization ID."""
     non_existent_id = str(uuid.uuid4())
-    response = client.get(f"/api/v1/organizations/{non_existent_id}")
+    response = authenticated_client.get(f"/api/v1/organizations/{non_existent_id}")
     
     assert response.status_code == 404
     data = response.json()
     assert "not found" in data["detail"].lower()
 
-def test_get_organization_malformed_id(db_session, client):
+def test_get_organization_malformed_id(authenticated_client, db_session):
     """Test malformed organization ID handling."""
     malformed_id = "not-a-valid-uuid"
-    response = client.get(f"/api/v1/organizations/{malformed_id}")
+    response = authenticated_client.get(f"/api/v1/organizations/{malformed_id}")
     
     # Should return 404 (not found) rather than 400 (bad request)
     assert response.status_code == 404
@@ -284,10 +284,10 @@ def test_get_organization_malformed_id(db_session, client):
 # Organization Update Tests
 # ---------------------------------------------------------------------------
 
-def test_update_organization_success(db_session, organization_payload, client):
+def test_update_organization_success(authenticated_client, db_session, organization_payload):
     """Test successful update of organization fields."""
     # Create organization
-    create_response = client.post("/api/v1/organizations/", json=organization_payload)
+    create_response = authenticated_client.post("/api/v1/organizations/", json=organization_payload)
     assert create_response.status_code == 201
     org_id = create_response.json()["id"]
     
@@ -296,7 +296,7 @@ def test_update_organization_success(db_session, organization_payload, client):
         "name": "Updated Organization Name",
         "description": "Updated description"
     }
-    response = client.put(f"/api/v1/organizations/{org_id}", json=update_data)
+    response = authenticated_client.put(f"/api/v1/organizations/{org_id}", json=update_data)
     
     assert response.status_code == 200
     data = response.json()
@@ -309,17 +309,17 @@ def test_update_organization_success(db_session, organization_payload, client):
         "description": update_data["description"]
     })
 
-def test_update_organization_partial(db_session, organization_payload, client):
+def test_update_organization_partial(authenticated_client, db_session, organization_payload):
     """Test partial updates work correctly."""
     # Create organization
-    create_response = client.post("/api/v1/organizations/", json=organization_payload)
+    create_response = authenticated_client.post("/api/v1/organizations/", json=organization_payload)
     assert create_response.status_code == 201
     org_id = create_response.json()["id"]
     original_name = create_response.json()["name"]
     
     # Update only description
     update_data = {"description": "Only description updated"}
-    response = client.put(f"/api/v1/organizations/{org_id}", json=update_data)
+    response = authenticated_client.put(f"/api/v1/organizations/{org_id}", json=update_data)
     
     assert response.status_code == 200
     data = response.json()
@@ -332,10 +332,10 @@ def test_update_organization_partial(db_session, organization_payload, client):
         "description": update_data["description"]
     })
 
-def test_update_organization_validation_errors(db_session, organization_payload, client):
+def test_update_organization_validation_errors(authenticated_client, db_session, organization_payload):
     """Test validation errors for invalid update data."""
     # Create organization
-    create_response = client.post("/api/v1/organizations/", json=organization_payload)
+    create_response = authenticated_client.post("/api/v1/organizations/", json=organization_payload)
     assert create_response.status_code == 201
     org_id = create_response.json()["id"]
     
@@ -347,7 +347,7 @@ def test_update_organization_validation_errors(db_session, organization_payload,
     ]
     
     for invalid_update in invalid_updates:
-        response = client.put(f"/api/v1/organizations/{org_id}", json=invalid_update)
+        response = authenticated_client.put(f"/api/v1/organizations/{org_id}", json=invalid_update)
         assert response.status_code in [400, 422]
     
     # Verify database record is unchanged
@@ -356,18 +356,18 @@ def test_update_organization_validation_errors(db_session, organization_payload,
         "description": organization_payload["description"]
     })
 
-def test_update_organization_not_found(db_session, client):
+def test_update_organization_not_found(authenticated_client, db_session):
     """Test 404 error for non-existent organization."""
     non_existent_id = str(uuid.uuid4())
     update_data = {"name": "Updated Name"}
-    response = client.put(f"/api/v1/organizations/{non_existent_id}", json=update_data)
+    response = authenticated_client.put(f"/api/v1/organizations/{non_existent_id}", json=update_data)
     
     assert response.status_code == 404
 
-def test_update_organization_sanitization(db_session, organization_payload, client):
+def test_update_organization_sanitization(authenticated_client, db_session, organization_payload):
     """Test input sanitization on updates."""
     # Create organization
-    create_response = client.post("/api/v1/organizations/", json=organization_payload)
+    create_response = authenticated_client.post("/api/v1/organizations/", json=organization_payload)
     assert create_response.status_code == 201
     org_id = create_response.json()["id"]
     
@@ -376,7 +376,7 @@ def test_update_organization_sanitization(db_session, organization_payload, clie
         "name": "<b>Bold</b> Organization",
         "description": "<script>alert('XSS')</script>Description"
     }
-    response = client.put(f"/api/v1/organizations/{org_id}", json=update_data)
+    response = authenticated_client.put(f"/api/v1/organizations/{org_id}", json=update_data)
     
     assert response.status_code == 200
     data = response.json()
@@ -389,10 +389,10 @@ def test_update_organization_sanitization(db_session, organization_payload, clie
 # Organization-Campaign Relationship Tests
 # ---------------------------------------------------------------------------
 
-def test_organization_with_campaigns(db_session, organization_payload, client):
+def test_organization_with_campaigns(authenticated_client, db_session, organization_payload):
     """Test organization relationship with campaigns."""
     # Create organization
-    org_response = client.post("/api/v1/organizations/", json=organization_payload)
+    org_response = authenticated_client.post("/api/v1/organizations/", json=organization_payload)
     assert org_response.status_code == 201
     org_id = org_response.json()["id"]
     
@@ -405,7 +405,7 @@ def test_organization_with_campaigns(db_session, organization_payload, client):
         "totalRecords": 100,
         "url": "https://app.apollo.io/test"
     }
-    campaign_response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    campaign_response = authenticated_client.post("/api/v1/campaigns/", json=campaign_payload)
     assert campaign_response.status_code == 201
     
     # Verify campaign is linked to organization
@@ -449,14 +449,14 @@ def test_organization_with_campaigns(db_session, organization_payload, client):
 #     db_count = db_session.query(Organization).count()
 #     assert db_count == 5
 
-def test_sql_injection_prevention(db_session, client):
+def test_sql_injection_prevention(authenticated_client, db_session):
     """Test SQL injection prevention in organization operations."""
     # Try SQL injection in organization name
     malicious_payload = {
         "name": "Org'; DROP TABLE organizations; --",
         "description": "Normal description"
     }
-    response = client.post("/api/v1/organizations/", json=malicious_payload)
+    response = authenticated_client.post("/api/v1/organizations/", json=malicious_payload)
     
     # Should succeed without executing SQL
     assert response.status_code == 201
@@ -467,33 +467,33 @@ def test_sql_injection_prevention(db_session, client):
     
     # Try SQL injection in GET request
     malicious_id = "'; DROP TABLE organizations; --"
-    response = client.get(f"/api/v1/organizations/{malicious_id}")
+    response = authenticated_client.get(f"/api/v1/organizations/{malicious_id}")
     assert response.status_code == 404
     
     # Verify table still exists
     db_count = db_session.query(Organization).count()
     assert db_count == 1
 
-def test_organization_workflow_integration(db_session, organization_payload, client):
+def test_organization_workflow_integration(authenticated_client, db_session, organization_payload):
     """Test complete organization workflow: create, read, update, list."""
     # Step 1: Create organization
-    create_response = client.post("/api/v1/organizations/", json=organization_payload)
+    create_response = authenticated_client.post("/api/v1/organizations/", json=organization_payload)
     assert create_response.status_code == 201
     org_id = create_response.json()["id"]
     
     # Step 2: Read organization
-    get_response = client.get(f"/api/v1/organizations/{org_id}")
+    get_response = authenticated_client.get(f"/api/v1/organizations/{org_id}")
     assert get_response.status_code == 200
     assert get_response.json()["id"] == org_id
     
     # Step 3: Update organization
     update_data = {"name": "Updated via Workflow"}
-    update_response = client.put(f"/api/v1/organizations/{org_id}", json=update_data)
+    update_response = authenticated_client.put(f"/api/v1/organizations/{org_id}", json=update_data)
     assert update_response.status_code == 200
     assert update_response.json()["name"] == update_data["name"]
     
     # Step 4: List organizations
-    list_response = client.get("/api/v1/organizations/")
+    list_response = authenticated_client.get("/api/v1/organizations/")
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
     assert list_response.json()[0]["id"] == org_id

@@ -70,9 +70,9 @@ def db_helpers(test_db_session):
 
 
 @pytest.fixture(scope="function")
-def api_client():
-    """Create FastAPI test client."""
-    return TestClient(app)
+def api_client(authenticated_client):
+    """Create authenticated FastAPI test client."""
+    return authenticated_client
 
 
 # ---------------------------------------------------------------------------

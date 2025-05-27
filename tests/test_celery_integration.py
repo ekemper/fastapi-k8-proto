@@ -16,9 +16,9 @@ def test_celery_health_check(client):
     assert result["status"] == "healthy"
     assert "timestamp" in result
 
-def test_create_job_endpoint(client):
+def test_create_job_endpoint(authenticated_client):
     """Test job creation via API"""
-    response = client.post(
+    response = authenticated_client.post(
         "/api/v1/jobs",
         json={"name": "Test Job", "description": "Test description"}
     )
@@ -28,43 +28,43 @@ def test_create_job_endpoint(client):
     assert data["status"] == "pending"
     assert "task_id" in data
 
-def test_job_status_endpoint(client):
+def test_job_status_endpoint(authenticated_client):
     """Test job status retrieval"""
     # Create a job
-    response = client.post(
+    response = authenticated_client.post(
         "/api/v1/jobs",
         json={"name": "Status Test Job", "description": "Test description"}
     )
     job_id = response.json()["id"]
     
     # Check status
-    response = client.get(f"/api/v1/jobs/{job_id}/status")
+    response = authenticated_client.get(f"/api/v1/jobs/{job_id}/status")
     assert response.status_code == 200
     data = response.json()
     assert data["job_id"] == job_id
     assert "status" in data
 
-def test_list_jobs_endpoint(client):
+def test_list_jobs_endpoint(authenticated_client):
     """Test listing jobs with filters"""
     # List all jobs
-    response = client.get("/api/v1/jobs")
+    response = authenticated_client.get("/api/v1/jobs")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
     
     # List with status filter
-    response = client.get("/api/v1/jobs?status=pending")
+    response = authenticated_client.get("/api/v1/jobs?status=pending")
     assert response.status_code == 200
 
-def test_cancel_job_endpoint(client):
+def test_cancel_job_endpoint(authenticated_client):
     """Test job cancellation"""
     # Create a job
-    response = client.post(
+    response = authenticated_client.post(
         "/api/v1/jobs",
         json={"name": "Cancel Test Job", "description": "Test description"}
     )
     job_id = response.json()["id"]
     
     # Cancel it
-    response = client.delete(f"/api/v1/jobs/{job_id}")
+    response = authenticated_client.delete(f"/api/v1/jobs/{job_id}")
     assert response.status_code == 200
     assert "cancelled" in response.json()["message"] 

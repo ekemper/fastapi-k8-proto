@@ -25,7 +25,7 @@ def mock_instantly_service():
         yield
 
 @pytest.fixture
-def campaign_payload(client, organization):
+def campaign_payload(authenticated_client, organization):
     """Return a valid payload for creating a campaign via the API."""
     payload = {
         "name": "Test Campaign for Leads",
@@ -35,7 +35,7 @@ def campaign_payload(client, organization):
         "url": "https://app.apollo.io/#/lead-test",
         "organization_id": organization.id
     }
-    response = client.post("/api/v1/campaigns/", json=payload)
+    response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     assert response.status_code == 201
     return response.json()
 
@@ -75,8 +75,8 @@ def existing_lead(db_session, campaign_payload):
     return create_test_lead_in_db(db_session, data)
 
 # ------------------- Lead Creation Tests -------------------
-def test_create_lead_success(client, db_session, lead_payload):
-    response = client.post("/api/v1/leads/", json=lead_payload)
+def test_create_lead_success(authenticated_client, db_session, lead_payload):
+    response = authenticated_client.post("/api/v1/leads/", json=lead_payload)
     assert response.status_code == 201
     data = response.json()
     for key in lead_payload:
@@ -85,43 +85,43 @@ def test_create_lead_success(client, db_session, lead_payload):
     assert "id" in data
     verify_lead_in_db(db_session, data["id"], {"email": lead_payload["email"]})
 
-def test_create_lead_validation_missing_fields(client, db_session, lead_payload):
+def test_create_lead_validation_missing_fields(authenticated_client, db_session, lead_payload):
     bad_payload = lead_payload.copy()
     del bad_payload["campaign_id"]
-    response = client.post("/api/v1/leads/", json=bad_payload)
+    response = authenticated_client.post("/api/v1/leads/", json=bad_payload)
     assert response.status_code == 422
     assert count_leads_in_db(db_session) == 0
 
-def test_create_lead_validation_invalid_email(client, db_session, lead_payload):
+def test_create_lead_validation_invalid_email(authenticated_client, db_session, lead_payload):
     bad_payload = lead_payload.copy()
     bad_payload["email"] = "not-an-email"
-    response = client.post("/api/v1/leads/", json=bad_payload)
+    response = authenticated_client.post("/api/v1/leads/", json=bad_payload)
     assert response.status_code in (201, 422)  # Accepts any string, but if you add validation, expect 422
 
-def test_create_lead_duplicate_email_same_campaign(client, db_session, lead_payload):
-    response1 = client.post("/api/v1/leads/", json=lead_payload)
+def test_create_lead_duplicate_email_same_campaign(authenticated_client, db_session, lead_payload):
+    response1 = authenticated_client.post("/api/v1/leads/", json=lead_payload)
     assert response1.status_code == 201
-    response2 = client.post("/api/v1/leads/", json=lead_payload)
+    response2 = authenticated_client.post("/api/v1/leads/", json=lead_payload)
     # Should allow or update, depending on business logic. Accept both 201 and 200.
     assert response2.status_code in (200, 201)
     assert count_leads_in_db(db_session) == 1
 
 # ------------------- Lead Listing Tests -------------------
-def test_list_leads_empty(client, db_session):
-    response = client.get("/api/v1/leads/")
+def test_list_leads_empty(authenticated_client, db_session):
+    response = authenticated_client.get("/api/v1/leads/")
     assert response.status_code == 200
     assert response.json() == []
     assert count_leads_in_db(db_session) == 0
 
-def test_list_leads_multiple(client, db_session, lead_payload):
+def test_list_leads_multiple(authenticated_client, db_session, lead_payload):
     emails = []
     for i in range(3):
         payload = lead_payload.copy()
         payload["email"] = f"user{i}@example.com"
-        response = client.post("/api/v1/leads/", json=payload)
+        response = authenticated_client.post("/api/v1/leads/", json=payload)
         assert response.status_code == 201
         emails.append(payload["email"])
-    response = client.get("/api/v1/leads/")
+    response = authenticated_client.get("/api/v1/leads/")
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 3
@@ -130,22 +130,22 @@ def test_list_leads_multiple(client, db_session, lead_payload):
     returned_emails = {lead["email"] for lead in data}
     assert set(emails) == returned_emails
 
-def test_list_leads_pagination(client, db_session, lead_payload):
+def test_list_leads_pagination(authenticated_client, db_session, lead_payload):
     for i in range(5):
         payload = lead_payload.copy()
         payload["email"] = f"pagetest{i}@example.com"
-        client.post("/api/v1/leads/", json=payload)
-    response = client.get("/api/v1/leads/?skip=2&limit=2")
+        authenticated_client.post("/api/v1/leads/", json=payload)
+    response = authenticated_client.get("/api/v1/leads/?skip=2&limit=2")
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 2
     assert count_leads_in_db(db_session) == 5
 
-def test_list_leads_filter_by_campaign(client, db_session, lead_payload, campaign_payload):
+def test_list_leads_filter_by_campaign(authenticated_client, db_session, lead_payload, campaign_payload):
     # Create a second campaign
     second_campaign_payload = campaign_payload.copy()
     second_campaign_payload["name"] = "Second Campaign"
-    response = client.post("/api/v1/campaigns/", json=second_campaign_payload)
+    response = authenticated_client.post("/api/v1/campaigns/", json=second_campaign_payload)
     assert response.status_code == 201
     second_campaign = response.json()
     # Add leads to both campaigns
@@ -153,20 +153,20 @@ def test_list_leads_filter_by_campaign(client, db_session, lead_payload, campaig
     payload2 = lead_payload.copy()
     payload2["campaign_id"] = second_campaign["id"]
     payload2["email"] = "second@campaign.com"
-    client.post("/api/v1/leads/", json=payload1)
-    client.post("/api/v1/leads/", json=payload2)
+    authenticated_client.post("/api/v1/leads/", json=payload1)
+    authenticated_client.post("/api/v1/leads/", json=payload2)
     # Filter by first campaign
-    resp1 = client.get(f"/api/v1/leads/?campaign_id={campaign_payload['id']}")
+    resp1 = authenticated_client.get(f"/api/v1/leads/?campaign_id={campaign_payload['id']}")
     assert resp1.status_code == 200
     assert all(lead["campaign_id"] == campaign_payload["id"] for lead in resp1.json())
     # Filter by second campaign
-    resp2 = client.get(f"/api/v1/leads/?campaign_id={second_campaign['id']}")
+    resp2 = authenticated_client.get(f"/api/v1/leads/?campaign_id={second_campaign['id']}")
     assert resp2.status_code == 200
     assert all(lead["campaign_id"] == second_campaign["id"] for lead in resp2.json())
 
 # ------------------- Lead Retrieval Tests -------------------
-def test_get_lead_success(client, db_session, existing_lead):
-    response = client.get(f"/api/v1/leads/{existing_lead.id}")
+def test_get_lead_success(authenticated_client, db_session, existing_lead):
+    response = authenticated_client.get(f"/api/v1/leads/{existing_lead.id}")
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == existing_lead.id
@@ -174,47 +174,47 @@ def test_get_lead_success(client, db_session, existing_lead):
     db_lead = verify_lead_in_db(db_session, existing_lead.id)
     assert data["email"] == db_lead.email
 
-def test_get_lead_not_found(client, db_session):
+def test_get_lead_not_found(authenticated_client, db_session):
     non_existent_id = str(uuid.uuid4())
-    response = client.get(f"/api/v1/leads/{non_existent_id}")
+    response = authenticated_client.get(f"/api/v1/leads/{non_existent_id}")
     assert response.status_code == 404
     assert "not found" in response.json()["detail"].lower()
 
-def test_get_lead_malformed_id(client, db_session):
-    response = client.get("/api/v1/leads/not-a-uuid")
+def test_get_lead_malformed_id(authenticated_client, db_session):
+    response = authenticated_client.get("/api/v1/leads/not-a-uuid")
     assert response.status_code == 404
 
 # ------------------- Lead Update Tests -------------------
-def test_update_lead_success(client, db_session, existing_lead):
+def test_update_lead_success(authenticated_client, db_session, existing_lead):
     update_data = {"first_name": "Updated", "company": "NewCo"}
-    response = client.put(f"/api/v1/leads/{existing_lead.id}", json=update_data)
+    response = authenticated_client.put(f"/api/v1/leads/{existing_lead.id}", json=update_data)
     assert response.status_code == 200
     data = response.json()
     assert data["first_name"] == "Updated"
     assert data["company"] == "NewCo"
     verify_lead_in_db(db_session, existing_lead.id, {"first_name": "Updated", "company": "NewCo"})
 
-def test_update_lead_partial(client, db_session, existing_lead):
+def test_update_lead_partial(authenticated_client, db_session, existing_lead):
     update_data = {"title": "Director"}
-    response = client.put(f"/api/v1/leads/{existing_lead.id}", json=update_data)
+    response = authenticated_client.put(f"/api/v1/leads/{existing_lead.id}", json=update_data)
     assert response.status_code == 200
     data = response.json()
     assert data["title"] == "Director"
     verify_lead_in_db(db_session, existing_lead.id, {"title": "Director"})
 
-def test_update_lead_validation_error(client, db_session, existing_lead):
+def test_update_lead_validation_error(authenticated_client, db_session, existing_lead):
     update_data = {"email": ""}  # Empty email should fail if validated
-    response = client.put(f"/api/v1/leads/{existing_lead.id}", json=update_data)
+    response = authenticated_client.put(f"/api/v1/leads/{existing_lead.id}", json=update_data)
     assert response.status_code in (200, 422)  # Accepts empty, but if you add validation, expect 422
 
-def test_update_lead_not_found(client, db_session):
+def test_update_lead_not_found(authenticated_client, db_session):
     non_existent_id = str(uuid.uuid4())
     update_data = {"first_name": "Ghost"}
-    response = client.put(f"/api/v1/leads/{non_existent_id}", json=update_data)
+    response = authenticated_client.put(f"/api/v1/leads/{non_existent_id}", json=update_data)
     assert response.status_code == 404
 
 # ------------------- Campaign-Lead Relationship Tests -------------------
-def test_lead_campaign_relationship(client, db_session, campaign_payload):
+def test_lead_campaign_relationship(authenticated_client, db_session, campaign_payload):
     # Create a lead for the campaign
     payload = {
         "campaign_id": campaign_payload["id"],
@@ -222,9 +222,34 @@ def test_lead_campaign_relationship(client, db_session, campaign_payload):
         "last_name": "Test",
         "email": f"reltest{uuid.uuid4().hex[:6]}@example.com"
     }
-    response = client.post("/api/v1/leads/", json=payload)
+    response = authenticated_client.post("/api/v1/leads/", json=payload)
     assert response.status_code == 201
     lead_id = response.json()["id"]
     # Retrieve campaign from DB and check leads
     campaign = db_session.query(Campaign).filter(Campaign.id == campaign_payload["id"]).first()
-    assert any(lead.id == lead_id for lead in campaign.leads) 
+    assert any(lead.id == lead_id for lead in campaign.leads)
+
+# ------------------- Authentication Requirement Tests -------------------
+def test_create_lead_requires_auth(client, db_session, lead_payload):
+    """Test that lead creation requires authentication."""
+    response = client.post("/api/v1/leads/", json=lead_payload)
+    assert response.status_code == 401
+
+def test_list_leads_requires_auth(client, db_session):
+    """Test that listing leads requires authentication."""
+    response = client.get("/api/v1/leads/")
+    assert response.status_code == 401
+
+def test_get_lead_requires_auth(client, db_session):
+    """Test that getting a lead requires authentication."""
+    fake_id = str(uuid.uuid4())
+    response = client.get(f"/api/v1/leads/{fake_id}")
+    assert response.status_code == 401
+
+def test_update_lead_requires_auth(client, db_session):
+    """Test that updating a lead requires authentication."""
+    fake_id = str(uuid.uuid4())
+    response = client.put(f"/api/v1/leads/{fake_id}", json={"first_name": "Test"})
+    assert response.status_code == 401
+
+

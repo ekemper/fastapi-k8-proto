@@ -166,10 +166,10 @@ def test_create_campaign_validation_missing_fields(authenticated_client, db_sess
     # Verify no campaign records created on validation failures
     verify_no_campaign_in_db(db_session)
 
-def test_create_campaign_validation_invalid_fields(client, db_session, organization_payload):
+def test_create_campaign_validation_invalid_fields(authenticated_client, db_session, organization_payload):
     """Test validation errors for invalid field values."""
     # Create organization first
-    response = client.post("/api/v1/organizations/", json=organization_payload)
+    response = authenticated_client.post("/api/v1/organizations/", json=organization_payload)
     assert response.status_code == 201
     
     bad_payload = {
@@ -180,16 +180,16 @@ def test_create_campaign_validation_invalid_fields(client, db_session, organizat
         "url": ""  # Empty URL should fail
     }
     
-    response = client.post("/api/v1/campaigns/", json=bad_payload)
+    response = authenticated_client.post("/api/v1/campaigns/", json=bad_payload)
     assert response.status_code == 422  # Validation error
     
     # Verify no campaign records created on validation failures
     verify_no_campaign_in_db(db_session)
 
-def test_create_campaign_special_characters(client, db_session, campaign_payload):
+def test_create_campaign_special_characters(authenticated_client, db_session, authenticated_campaign_payload):
     """Test campaign creation with special characters."""
-    payload = {**campaign_payload, "name": "!@#$%^&*()_+-=[]{}|;:,.<>?/~`\"'\\"}
-    response = client.post("/api/v1/campaigns/", json=payload)
+    payload = {**authenticated_campaign_payload, "name": "!@#$%^&*()_+-=[]{}|;:,.<>?/~`\"'\\"}
+    response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     
     assert response.status_code == 201
     data = response.json()
@@ -198,14 +198,14 @@ def test_create_campaign_special_characters(client, db_session, campaign_payload
     # Verify database record
     verify_campaign_in_db(db_session, data["id"], {"name": payload["name"]})
 
-def test_create_campaign_xss_prevention(client, db_session, campaign_payload):
+def test_create_campaign_xss_prevention(authenticated_client, db_session, authenticated_campaign_payload):
     """Test XSS prevention in campaign names/descriptions."""
     payload = {
-        **campaign_payload,
+        **authenticated_campaign_payload,
         "name": "<script>alert(\"XSS\")</script>Campaign",
         "description": "<img src=x onerror=alert('XSS')>"
     }
-    response = client.post("/api/v1/campaigns/", json=payload)
+    response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     
     assert response.status_code == 201
     data = response.json()
@@ -218,11 +218,11 @@ def test_create_campaign_xss_prevention(client, db_session, campaign_payload):
         "description": payload["description"]
     })
 
-def test_create_campaign_long_description(client, db_session, campaign_payload):
+def test_create_campaign_long_description(authenticated_client, db_session, authenticated_campaign_payload):
     """Test campaign creation with extremely long field values."""
     long_description = "x" * 10000
-    payload = {**campaign_payload, "description": long_description}
-    response = client.post("/api/v1/campaigns/", json=payload)
+    payload = {**authenticated_campaign_payload, "description": long_description}
+    response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     
     assert response.status_code == 201
     data = response.json()
@@ -235,9 +235,9 @@ def test_create_campaign_long_description(client, db_session, campaign_payload):
 # Campaign Listing Tests
 # ---------------------------------------------------------------------------
 
-def test_list_campaigns_empty(client, db_session):
+def test_list_campaigns_empty(authenticated_client, db_session):
     """Test empty campaign list returns correctly."""
-    response = client.get("/api/v1/campaigns/")
+    response = authenticated_client.get("/api/v1/campaigns/")
     
     assert response.status_code == 200
     data = response.json()
@@ -247,19 +247,19 @@ def test_list_campaigns_empty(client, db_session):
     # Verify database is empty
     verify_no_campaign_in_db(db_session)
 
-def test_list_campaigns_multiple(client, db_session, campaign_payload):
+def test_list_campaigns_multiple(authenticated_client, db_session, authenticated_campaign_payload):
     """Create multiple campaigns and verify list endpoint returns all."""
     created_campaigns = []
     
     # Create 3 campaigns
     for i in range(3):
-        payload = {**campaign_payload, "name": f"Campaign {i}"}
-        response = client.post("/api/v1/campaigns/", json=payload)
+        payload = {**authenticated_campaign_payload, "name": f"Campaign {i}"}
+        response = authenticated_client.post("/api/v1/campaigns/", json=payload)
         assert response.status_code == 201
         created_campaigns.append(response.json())
     
     # List campaigns
-    response = client.get("/api/v1/campaigns/")
+    response = authenticated_client.get("/api/v1/campaigns/")
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 3
@@ -273,16 +273,16 @@ def test_list_campaigns_multiple(client, db_session, campaign_payload):
     db_count = db_session.query(Campaign).count()
     assert db_count == 3
 
-def test_list_campaigns_pagination(client, db_session, campaign_payload):
+def test_list_campaigns_pagination(authenticated_client, db_session, authenticated_campaign_payload):
     """Test pagination parameters work correctly."""
     # Create 5 campaigns
     for i in range(5):
-        payload = {**campaign_payload, "name": f"Campaign {i}"}
-        response = client.post("/api/v1/campaigns/", json=payload)
+        payload = {**authenticated_campaign_payload, "name": f"Campaign {i}"}
+        response = authenticated_client.post("/api/v1/campaigns/", json=payload)
         assert response.status_code == 201
     
     # Test pagination
-    response = client.get("/api/v1/campaigns/?skip=2&limit=2")
+    response = authenticated_client.get("/api/v1/campaigns/?skip=2&limit=2")
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 2  # Should return 2 campaigns (limit=2)
@@ -291,20 +291,20 @@ def test_list_campaigns_pagination(client, db_session, campaign_payload):
     db_count = db_session.query(Campaign).count()
     assert db_count == 5
 
-def test_list_campaigns_order(client, db_session, campaign_payload):
+def test_list_campaigns_order(authenticated_client, db_session, authenticated_campaign_payload):
     """Test campaigns are returned in correct order."""
     # Create campaigns with timestamps
     created_campaigns = []
     for i in range(3):
-        payload = {**campaign_payload, "name": f"Campaign {i}"}
-        response = client.post("/api/v1/campaigns/", json=payload)
+        payload = {**authenticated_campaign_payload, "name": f"Campaign {i}"}
+        response = authenticated_client.post("/api/v1/campaigns/", json=payload)
         assert response.status_code == 201
         created_campaigns.append(response.json())
         # Add small delay to ensure different timestamps
         time.sleep(0.1)
     
     # List campaigns
-    response = client.get("/api/v1/campaigns/")
+    response = authenticated_client.get("/api/v1/campaigns/")
     assert response.status_code == 200
     data = response.json()
     
@@ -325,22 +325,22 @@ def test_list_campaigns_order(client, db_session, campaign_payload):
 # Campaign Retrieval Tests
 # ---------------------------------------------------------------------------
 
-def test_get_campaign_success(client, db_session, campaign_payload):
+def test_get_campaign_success(authenticated_client, db_session, authenticated_campaign_payload):
     """Test successful retrieval of existing campaign."""
     # Create campaign
-    create_response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
     created_campaign = create_response.json()
     campaign_id = created_campaign["id"]
     
     # Retrieve campaign
-    response = client.get(f"/api/v1/campaigns/{campaign_id}")
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}")
     assert response.status_code == 200
     data = response.json()
     
     # Verify returned data matches database record exactly
     assert data["id"] == campaign_id
-    assert data["name"] == campaign_payload["name"]
+    assert data["name"] == authenticated_campaign_payload["name"]
     assert data["status"] == CampaignStatus.CREATED.value
     
     # Verify database record matches
@@ -348,19 +348,19 @@ def test_get_campaign_success(client, db_session, campaign_payload):
     assert data["name"] == db_campaign.name
     assert data["description"] == db_campaign.description
 
-def test_get_campaign_not_found(client, db_session):
+def test_get_campaign_not_found(authenticated_client, db_session):
     """Test 404 error for non-existent campaign ID."""
     non_existent_id = str(uuid.uuid4())
-    response = client.get(f"/api/v1/campaigns/{non_existent_id}")
+    response = authenticated_client.get(f"/api/v1/campaigns/{non_existent_id}")
     
     assert response.status_code == 404
     data = response.json()
     assert "not found" in data["detail"].lower()
 
-def test_get_campaign_malformed_id(client, db_session):
+def test_get_campaign_malformed_id(authenticated_client, db_session):
     """Test malformed campaign ID handling."""
     malformed_id = "not-a-valid-uuid"
-    response = client.get(f"/api/v1/campaigns/{malformed_id}")
+    response = authenticated_client.get(f"/api/v1/campaigns/{malformed_id}")
     
     # Should return 404 (not found) rather than 400 (bad request)
     assert response.status_code == 404
@@ -369,10 +369,10 @@ def test_get_campaign_malformed_id(client, db_session):
 # Campaign Update Tests
 # ---------------------------------------------------------------------------
 
-def test_update_campaign_success(client, db_session, campaign_payload):
+def test_update_campaign_success(authenticated_client, db_session, authenticated_campaign_payload):
     """Test successful update of allowed fields."""
     # Create campaign
-    create_response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
     campaign_id = create_response.json()["id"]
     
@@ -381,7 +381,7 @@ def test_update_campaign_success(client, db_session, campaign_payload):
         "name": "Updated Campaign Name",
         "description": "Updated description"
     }
-    response = client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
+    response = authenticated_client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
     
     assert response.status_code == 200
     data = response.json()
@@ -394,17 +394,17 @@ def test_update_campaign_success(client, db_session, campaign_payload):
         "description": update_data["description"]
     })
 
-def test_update_campaign_partial(client, db_session, campaign_payload):
+def test_update_campaign_partial(authenticated_client, db_session, authenticated_campaign_payload):
     """Test partial updates work correctly."""
     # Create campaign
-    create_response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
     campaign_id = create_response.json()["id"]
     original_name = create_response.json()["name"]
     
     # Update only description
     update_data = {"description": "Only description updated"}
-    response = client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
+    response = authenticated_client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
     
     assert response.status_code == 200
     data = response.json()
@@ -417,29 +417,29 @@ def test_update_campaign_partial(client, db_session, campaign_payload):
         "description": update_data["description"]
     })
 
-def test_update_campaign_validation_error(client, db_session, campaign_payload):
+def test_update_campaign_validation_error(authenticated_client, db_session, authenticated_campaign_payload):
     """Test validation errors for invalid update data."""
     # Create campaign
-    create_response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
     campaign_id = create_response.json()["id"]
     
     # Try to update with invalid data
     invalid_update = {"totalRecords": -1}  # Negative value should fail
-    response = client.patch(f"/api/v1/campaigns/{campaign_id}", json=invalid_update)
+    response = authenticated_client.patch(f"/api/v1/campaigns/{campaign_id}", json=invalid_update)
     
     assert response.status_code == 422  # Validation error
     
     # Verify database record is unchanged
     verify_campaign_in_db(db_session, campaign_id, {
-        "totalRecords": campaign_payload["totalRecords"]
+        "totalRecords": authenticated_campaign_payload["totalRecords"]
     })
 
-def test_update_campaign_not_found(client, db_session):
+def test_update_campaign_not_found(authenticated_client, db_session):
     """Test 404 error for non-existent campaign."""
     non_existent_id = str(uuid.uuid4())
     update_data = {"name": "Updated Name"}
-    response = client.patch(f"/api/v1/campaigns/{non_existent_id}", json=update_data)
+    response = authenticated_client.patch(f"/api/v1/campaigns/{non_existent_id}", json=update_data)
     
     assert response.status_code == 404
 
@@ -447,15 +447,15 @@ def test_update_campaign_not_found(client, db_session):
 # Campaign Start Flow Tests
 # ---------------------------------------------------------------------------
 
-def test_start_campaign_success(client, db_session, campaign_payload):
+def test_start_campaign_success(authenticated_client, db_session, authenticated_campaign_payload):
     """Test starting campaign changes status from CREATED to RUNNING."""
     # Create campaign
-    create_response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
     campaign_id = create_response.json()["id"]
     
     # Start campaign
-    response = client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
+    response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
     
     # Note: This might fail due to missing Apollo/Instantly services
     # but we test the expected behavior when services are available
@@ -474,10 +474,10 @@ def test_start_campaign_success(client, db_session, campaign_payload):
         # Service unavailable - expected in test environment
         assert response.status_code in [500, 404]
 
-def test_start_campaign_duplicate(client, db_session, campaign_payload):
+def test_start_campaign_duplicate(authenticated_client, db_session, authenticated_campaign_payload):
     """Test error when trying to start non-CREATED campaign."""
     # Create campaign
-    create_response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
     campaign_id = create_response.json()["id"]
     
@@ -487,15 +487,15 @@ def test_start_campaign_duplicate(client, db_session, campaign_payload):
     db_session.commit()
     
     # Try to start already running campaign
-    response = client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
+    response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
     
     # Should return error for invalid state transition
     assert response.status_code in [400, 422]
 
-def test_start_campaign_not_found(client, db_session):
+def test_start_campaign_not_found(authenticated_client, db_session):
     """Test starting non-existent campaign returns 404."""
     non_existent_id = str(uuid.uuid4())
-    response = client.post(f"/api/v1/campaigns/{non_existent_id}/start", json={})
+    response = authenticated_client.post(f"/api/v1/campaigns/{non_existent_id}/start", json={})
     
     assert response.status_code == 404
 
@@ -503,15 +503,15 @@ def test_start_campaign_not_found(client, db_session):
 # Campaign Details Tests
 # ---------------------------------------------------------------------------
 
-def test_get_campaign_details_success(client, db_session, campaign_payload):
+def test_get_campaign_details_success(authenticated_client, db_session, authenticated_campaign_payload):
     """Test campaign details endpoint returns campaign + stats."""
     # Create campaign
-    create_response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
     campaign_id = create_response.json()["id"]
     
     # Get campaign details
-    response = client.get(f"/api/v1/campaigns/{campaign_id}/details")
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/details")
     
     assert response.status_code == 200
     data = response.json()
@@ -538,10 +538,10 @@ def test_get_campaign_details_success(client, db_session, campaign_payload):
     for stat in expected_stats:
         assert stat in lead_stats
 
-def test_get_campaign_details_not_found(client, db_session):
+def test_get_campaign_details_not_found(authenticated_client, db_session):
     """Test campaign details for non-existent campaign returns 404."""
     non_existent_id = str(uuid.uuid4())
-    response = client.get(f"/api/v1/campaigns/{non_existent_id}/details")
+    response = authenticated_client.get(f"/api/v1/campaigns/{non_existent_id}/details")
     
     assert response.status_code == 404
 
@@ -549,10 +549,10 @@ def test_get_campaign_details_not_found(client, db_session):
 # Job Cleanup Tests
 # ---------------------------------------------------------------------------
 
-def test_cleanup_old_jobs_success(client, db_session, campaign_payload):
+def test_cleanup_old_jobs_success(authenticated_client, db_session, authenticated_campaign_payload):
     """Test cleanup of old job records."""
     # Create campaign
-    create_response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
     campaign_id = create_response.json()["id"]
     
@@ -586,7 +586,7 @@ def test_cleanup_old_jobs_success(client, db_session, campaign_payload):
     db_session.commit()
     
     # Cleanup jobs older than 30 days
-    response = client.post(f"/api/v1/campaigns/{campaign_id}/cleanup-jobs", json={"days": 30})
+    response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/cleanup-jobs", json={"days": 30})
     
     # Verify cleanup endpoint works
     if response.status_code == 200:
@@ -602,10 +602,10 @@ def test_cleanup_old_jobs_success(client, db_session, campaign_payload):
 # Security Tests
 # ---------------------------------------------------------------------------
 
-def test_sql_injection_prevention(client, db_session):
+def test_sql_injection_prevention(authenticated_client, db_session):
     """Test SQL injection attempts are prevented."""
     malicious_id = "'; DROP TABLE campaigns; --"
-    response = client.get(f"/api/v1/campaigns/{malicious_id}")
+    response = authenticated_client.get(f"/api/v1/campaigns/{malicious_id}")
     
     # Should return 404, not execute SQL
     assert response.status_code == 404
@@ -618,10 +618,10 @@ def test_sql_injection_prevention(client, db_session):
 # Concurrency Tests
 # ---------------------------------------------------------------------------
 
-def test_concurrent_operations_same_campaign(client, db_session, campaign_payload):
+def test_concurrent_operations_same_campaign(authenticated_client, db_session, authenticated_campaign_payload):
     """Test concurrent operations on same campaign are handled correctly."""
     # Create campaign
-    create_response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
     campaign_id = create_response.json()["id"]
     
@@ -629,8 +629,8 @@ def test_concurrent_operations_same_campaign(client, db_session, campaign_payloa
     update1 = {"name": "Update 1"}
     update2 = {"name": "Update 2"}
     
-    response1 = client.patch(f"/api/v1/campaigns/{campaign_id}", json=update1)
-    response2 = client.patch(f"/api/v1/campaigns/{campaign_id}", json=update2)
+    response1 = authenticated_client.patch(f"/api/v1/campaigns/{campaign_id}", json=update1)
+    response2 = authenticated_client.patch(f"/api/v1/campaigns/{campaign_id}", json=update2)
     
     # Both should succeed (last one wins)
     assert response1.status_code == 200
@@ -644,10 +644,10 @@ def test_concurrent_operations_same_campaign(client, db_session, campaign_payloa
 # Integration Tests
 # ---------------------------------------------------------------------------
 
-def test_campaign_workflow_integration(client, db_session, campaign_payload):
+def test_campaign_workflow_integration(authenticated_client, db_session, authenticated_campaign_payload):
     """Test complete campaign workflow with database verification at each step."""
     # 1. Create campaign
-    response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert response.status_code == 201
     campaign = response.json()
     campaign_id = campaign["id"]
@@ -655,11 +655,11 @@ def test_campaign_workflow_integration(client, db_session, campaign_payload):
     # Verify creation in database
     verify_campaign_in_db(db_session, campaign_id, {
         "status": CampaignStatus.CREATED.value,
-        "name": campaign_payload["name"]
+        "name": authenticated_campaign_payload["name"]
     })
     
     # 2. Update campaign
-    update_response = client.patch(
+    update_response = authenticated_client.patch(
         f"/api/v1/campaigns/{campaign_id}",
         json={"description": "Updated during workflow test"}
     )
@@ -671,7 +671,7 @@ def test_campaign_workflow_integration(client, db_session, campaign_payload):
     })
     
     # 3. Start campaign (may fail due to missing services)
-    start_response = client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
+    start_response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
     if start_response.status_code == 200:
         # Verify status change in database
         verify_campaign_in_db(db_session, campaign_id, {
@@ -679,11 +679,11 @@ def test_campaign_workflow_integration(client, db_session, campaign_payload):
         })
     
     # 4. Get campaign details
-    details_response = client.get(f"/api/v1/campaigns/{campaign_id}/details")
+    details_response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/details")
     assert details_response.status_code == 200
     
     # 5. List all campaigns (should include our campaign)
-    list_response = client.get("/api/v1/campaigns/")
+    list_response = authenticated_client.get("/api/v1/campaigns/")
     assert list_response.status_code == 200
     campaigns = list_response.json()
     assert any(c["id"] == campaign_id for c in campaigns) 

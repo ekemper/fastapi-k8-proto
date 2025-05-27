@@ -192,6 +192,10 @@ def authenticated_client(client, db_session):
             kwargs.setdefault('headers', {}).update(self.headers)
             return self.client.patch(url, **kwargs)
         
+        def put(self, url, **kwargs):
+            kwargs.setdefault('headers', {}).update(self.headers)
+            return self.client.put(url, **kwargs)
+        
         def delete(self, url, **kwargs):
             kwargs.setdefault('headers', {}).update(self.headers)
             return self.client.delete(url, **kwargs)

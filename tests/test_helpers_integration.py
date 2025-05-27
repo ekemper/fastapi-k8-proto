@@ -58,7 +58,7 @@ def mock_instantly_service():
     with patch("app.services.campaign.InstantlyService", DummyInstantlyService):
         yield
 
-def test_campaign_api_with_database_verification(db_helpers, organization, client):
+def test_campaign_api_with_database_verification(db_helpers, organization, authenticated_client):
     """Test campaign API endpoints with comprehensive database verification."""
     
     # Initial state - no campaigns
@@ -74,7 +74,7 @@ def test_campaign_api_with_database_verification(db_helpers, organization, clien
         "organization_id": organization.id
     }
     
-    response = client.post("/api/v1/campaigns/", json=campaign_data)
+    response = authenticated_client.post("/api/v1/campaigns/", json=campaign_data)
     assert response.status_code == 201
     
     api_campaign = response.json()
@@ -99,7 +99,7 @@ def test_campaign_api_with_database_verification(db_helpers, organization, clien
     
     # Update campaign via API
     update_data = {"name": "Updated API Campaign", "description": "Updated via API"}
-    response = client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
+    response = authenticated_client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
     assert response.status_code == 200
     
     # Verify updates in database
@@ -112,7 +112,7 @@ def test_campaign_api_with_database_verification(db_helpers, organization, clien
     db_helpers.verify_campaign_timestamps(campaign_id, check_updated=False)
     
     # Get campaign via API and verify consistency
-    response = client.get(f"/api/v1/campaigns/{campaign_id}")
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}")
     assert response.status_code == 200
     
     api_campaign = response.json()
@@ -163,7 +163,7 @@ def test_campaign_creation_with_job_verification(db_helpers, organization):
     # Verify status update
     db_helpers.verify_job_status_in_db(job.id, "completed")
 
-def test_multiple_campaigns_database_state(db_helpers, organization, client):
+def test_multiple_campaigns_database_state(db_helpers, organization, authenticated_client):
     """Test managing multiple campaigns and verifying database state."""
     
     # Create multiple campaigns via API
@@ -177,7 +177,7 @@ def test_multiple_campaigns_database_state(db_helpers, organization, client):
             "organization_id": organization.id
         }
         
-        response = client.post("/api/v1/campaigns/", json=campaign_data)
+        response = authenticated_client.post("/api/v1/campaigns/", json=campaign_data)
         assert response.status_code == 201
         campaigns.append(response.json())
     
