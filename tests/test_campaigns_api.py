@@ -9,6 +9,7 @@ from app.models.campaign_status import CampaignStatus
 from app.models.job import Job, JobStatus, JobType
 from app.models.organization import Organization
 from tests.helpers.instantly_mock import mock_instantly_service
+from tests.helpers.auth_helpers import AuthHelpers
 
 # All database setup is now handled by conftest.py
 
@@ -23,10 +24,10 @@ def organization_payload():
     }
 
 @pytest.fixture
-def campaign_payload(client, organization_payload):
-    """Return a valid payload for creating a campaign via the API."""
-    # Create an organization first
-    response = client.post("/api/v1/organizations/", json=organization_payload)
+def authenticated_campaign_payload(authenticated_client, organization_payload):
+    """Return a valid payload for creating a campaign via the API with auth."""
+    # Create an organization first using authenticated client
+    response = authenticated_client.post("/api/v1/organizations/", json=organization_payload)
     assert response.status_code == 201
     org_id = response.json()["id"]
     
@@ -37,6 +38,19 @@ def campaign_payload(client, organization_payload):
         "totalRecords": 25,
         "url": "https://app.apollo.io/#/some-search",
         "organization_id": org_id
+    }
+
+@pytest.fixture
+def campaign_payload(client, organization_payload):
+    """Return a valid payload for creating a campaign via the API (legacy - for auth tests)."""
+    # This fixture is kept for testing authentication requirements
+    return {
+        "name": "API Test Campaign",
+        "description": "This campaign is created by tests",
+        "fileName": "input-file.csv",
+        "totalRecords": 25,
+        "url": "https://app.apollo.io/#/some-search",
+        "organization_id": str(uuid.uuid4())  # Use fake org ID for auth tests
     }
 
 def verify_campaign_in_db(db_session, campaign_id: str, expected_data: dict = None):
@@ -72,39 +86,71 @@ def verify_job_in_db(db_session, campaign_id: str, job_type: JobType, expected_c
     return jobs
 
 # ---------------------------------------------------------------------------
+# Authentication Tests
+# ---------------------------------------------------------------------------
+
+def test_create_campaign_requires_auth(client, db_session, campaign_payload):
+    """Test that campaign creation requires authentication."""
+    response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    assert response.status_code == 401
+
+def test_list_campaigns_requires_auth(client, db_session):
+    """Test that listing campaigns requires authentication."""
+    response = client.get("/api/v1/campaigns/")
+    assert response.status_code == 401
+
+def test_get_campaign_requires_auth(client, db_session):
+    """Test that getting a campaign requires authentication."""
+    campaign_id = str(uuid.uuid4())
+    response = client.get(f"/api/v1/campaigns/{campaign_id}")
+    assert response.status_code == 401
+
+def test_update_campaign_requires_auth(client, db_session):
+    """Test that updating a campaign requires authentication."""
+    campaign_id = str(uuid.uuid4())
+    response = client.patch(f"/api/v1/campaigns/{campaign_id}", json={"name": "Updated"})
+    assert response.status_code == 401
+
+def test_start_campaign_requires_auth(client, db_session):
+    """Test that starting a campaign requires authentication."""
+    campaign_id = str(uuid.uuid4())
+    response = client.post(f"/api/v1/campaigns/{campaign_id}/start")
+    assert response.status_code == 401
+
+# ---------------------------------------------------------------------------
 # Campaign Creation Tests
 # ---------------------------------------------------------------------------
 
-def test_create_campaign_success(client, db_session, campaign_payload):
+def test_create_campaign_success(authenticated_client, db_session, authenticated_campaign_payload):
     """Test successful campaign creation with all required fields."""
-    response = client.post("/api/v1/campaigns/", json=campaign_payload)
+    response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     
     # Verify API response
     assert response.status_code == 201
     data = response.json()
-    assert data["name"] == campaign_payload["name"]
+    assert data["name"] == authenticated_campaign_payload["name"]
     assert data["status"] == CampaignStatus.CREATED.value
-    assert data["fileName"] == campaign_payload["fileName"]
-    assert data["totalRecords"] == campaign_payload["totalRecords"]
-    assert data["url"] == campaign_payload["url"]
-    assert data["organization_id"] == campaign_payload["organization_id"]
+    assert data["fileName"] == authenticated_campaign_payload["fileName"]
+    assert data["totalRecords"] == authenticated_campaign_payload["totalRecords"]
+    assert data["url"] == authenticated_campaign_payload["url"]
+    assert data["organization_id"] == authenticated_campaign_payload["organization_id"]
     assert "id" in data
     assert "created_at" in data
     
     # Verify campaign record exists in database with correct values
     verify_campaign_in_db(db_session, data["id"], {
-        "name": campaign_payload["name"],
+        "name": authenticated_campaign_payload["name"],
         "status": CampaignStatus.CREATED.value,
-        "fileName": campaign_payload["fileName"],
-        "totalRecords": campaign_payload["totalRecords"],
-        "url": campaign_payload["url"],
-        "organization_id": campaign_payload["organization_id"]
+        "fileName": authenticated_campaign_payload["fileName"],
+        "totalRecords": authenticated_campaign_payload["totalRecords"],
+        "url": authenticated_campaign_payload["url"],
+        "organization_id": authenticated_campaign_payload["organization_id"]
     })
 
-def test_create_campaign_validation_missing_fields(client, db_session, organization_payload):
+def test_create_campaign_validation_missing_fields(authenticated_client, db_session, organization_payload):
     """Test validation errors for missing required fields."""
     # Create organization first
-    response = client.post("/api/v1/organizations/", json=organization_payload)
+    response = authenticated_client.post("/api/v1/organizations/", json=organization_payload)
     assert response.status_code == 201
     
     bad_payload = {
@@ -114,7 +160,7 @@ def test_create_campaign_validation_missing_fields(client, db_session, organizat
         # Missing totalRecords (required)
     }
     
-    response = client.post("/api/v1/campaigns/", json=bad_payload)
+    response = authenticated_client.post("/api/v1/campaigns/", json=bad_payload)
     assert response.status_code == 422  # Validation error
     
     # Verify no campaign records created on validation failures

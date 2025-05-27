@@ -14,6 +14,14 @@ from app.schemas.organization import (
     OrganizationInDB
 )
 from app.schemas.lead import LeadCreate, LeadUpdate, LeadResponse
+from app.schemas.auth import (
+    UserSignupRequest, 
+    UserLoginRequest, 
+    TokenResponse, 
+    UserResponse, 
+    SignupResponse, 
+    LoginResponse
+)
 
 __all__ = [
     "JobCreate", 
@@ -31,5 +39,11 @@ __all__ = [
     "OrganizationInDB",
     "LeadCreate",
     "LeadUpdate",
-    "LeadResponse"
+    "LeadResponse",
+    "UserSignupRequest",
+    "UserLoginRequest",
+    "TokenResponse",
+    "UserResponse",
+    "SignupResponse",
+    "LoginResponse"
 ]

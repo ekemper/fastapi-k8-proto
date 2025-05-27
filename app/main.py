@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.endpoints import jobs, health, campaigns, organizations
+from app.api.endpoints import jobs, health, campaigns, organizations, auth
 from app.api.endpoints import leads
 from app.core.config import settings
+from app.core.middleware import AuthenticationMiddleware
 
 def create_application() -> FastAPI:
     app = FastAPI(
@@ -20,9 +21,13 @@ def create_application() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    
+    # Add authentication middleware
+    app.add_middleware(AuthenticationMiddleware)
 
     # Include routers
     app.include_router(health.router, prefix=f"{settings.API_V1_STR}/health", tags=["health"])
+    app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
     app.include_router(jobs.router, prefix=f"{settings.API_V1_STR}/jobs", tags=["jobs"])
     app.include_router(campaigns.router, prefix=f"{settings.API_V1_STR}/campaigns", tags=["campaigns"])
     app.include_router(organizations.router, prefix=f"{settings.API_V1_STR}/organizations", tags=["organizations"])

@@ -1,9 +1,12 @@
 please review these files from the leadGen project :
 
-/Users/ek/dev/leadGen/server/api/services/lead_service.py
-/Users/ek/dev/leadGen/server/models/lead.py
+depricated-auth-service.py
+depricated-user-model.py
+depricated-auth-tests.py
 
-the depricated route definitions for leads from the old app are in depricated-routes.py
+the depricated route definitions for auth from the old app are in depricated-routes.py
+
+there may be useful logic in depricated-validator-service.py , however be aware of duplicate logic
 
 -----------------
 
@@ -33,4 +36,4 @@ when createing and running migrations, run the commands in the api docker contai
 
 lets leave the unit tests out of the picture for the moment - I want a comprehensive set of functional api layer tests - the tests should hit the api and then check the database for results. 
 
-please create a md document in the root of the project called leads-business-logic-migration.md and put the instructions there for safe keeping
+please create a md document in the root of the project called auth-business-logic-migration.md and put the instructions there for safe keeping

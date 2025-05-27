@@ -28,8 +28,17 @@ class CampaignService:
     """Service for managing campaign business logic."""
     
     def __init__(self):
-        self.apollo_service = ApolloService() if ApolloService else None
-        self.instantly_service = InstantlyService() if InstantlyService else None
+        try:
+            self.apollo_service = ApolloService() if ApolloService else None
+        except Exception as e:
+            logger.warning(f"Failed to initialize ApolloService: {str(e)}")
+            self.apollo_service = None
+            
+        try:
+            self.instantly_service = InstantlyService() if InstantlyService else None
+        except Exception as e:
+            logger.warning(f"Failed to initialize InstantlyService: {str(e)}")
+            self.instantly_service = None
 
     async def get_campaigns(self, db: Session, organization_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all campaigns with latest job information, optionally filtered by organization."""

@@ -9,6 +9,7 @@ from app.core.database import Base, get_db
 from app.models.organization import Organization
 from app.models.campaign import Campaign
 from tests.helpers.instantly_mock import mock_instantly_service
+from tests.helpers.auth_helpers import AuthHelpers
 
 # Test database
 # SQLALCHEMY_DATABASE_URL = "sqlite:///./test_organizations_api.db"
@@ -58,12 +59,38 @@ def verify_no_organization_in_db(db_session, org_id: str = None):
         assert count == 0, f"Expected 0 organizations in database, found {count}"
 
 # ---------------------------------------------------------------------------
+# Authentication Tests
+# ---------------------------------------------------------------------------
+
+def test_create_organization_requires_auth(client, db_session, organization_payload):
+    """Test that organization creation requires authentication."""
+    response = client.post("/api/v1/organizations/", json=organization_payload)
+    assert response.status_code == 401
+
+def test_list_organizations_requires_auth(client, db_session):
+    """Test that listing organizations requires authentication."""
+    response = client.get("/api/v1/organizations/")
+    assert response.status_code == 401
+
+def test_get_organization_requires_auth(client, db_session):
+    """Test that getting an organization requires authentication."""
+    org_id = str(uuid.uuid4())
+    response = client.get(f"/api/v1/organizations/{org_id}")
+    assert response.status_code == 401
+
+def test_update_organization_requires_auth(client, db_session):
+    """Test that updating an organization requires authentication."""
+    org_id = str(uuid.uuid4())
+    response = client.put(f"/api/v1/organizations/{org_id}", json={"name": "Updated"})
+    assert response.status_code == 401
+
+# ---------------------------------------------------------------------------
 # Organization Creation Tests
 # ---------------------------------------------------------------------------
 
-def test_create_organization_success(db_session, organization_payload, client):
+def test_create_organization_success(authenticated_client, db_session, organization_payload):
     """Test successful organization creation with all required fields."""
-    response = client.post("/api/v1/organizations/", json=organization_payload)
+    response = authenticated_client.post("/api/v1/organizations/", json=organization_payload)
     
     # Verify API response
     assert response.status_code == 201

@@ -1,6 +1,8 @@
 
+now that we have protected endpoints, and an auth service, we need to update the api tests
 
-pleaes create an extreamly detailed set of step by step instructions for an ai agent to perform this review of the api testing  logic ( routes, service, model, tests) . 
+
+pleaes create an extreamly detailed set of step by step instructions for an ai agent to perform a review of the api testing  logic ( routes, service, model, tests) . 
 
 
 the current patterns, conventions, and configuration for this app (fastapi-k8-proto) should be maintained  at all cost. 
@@ -18,3 +20,8 @@ when createing and running migrations, run the commands in the api docker contai
 lets leave the unit tests out of the picture for the moment - I want a comprehensive set of functional api layer tests - the tests should hit the api and then check the database for results. 
 
 please create a md document in the root of the project and put the instructions there for safe keeping
+
+
+
+
+docker compose exec api pytest

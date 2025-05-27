@@ -9,6 +9,7 @@ from app.main import app
 from app.core.database import Base, get_db
 from app.core.config import settings
 from app.models.organization import Organization
+from app.models.user import User
 
 # Override settings for testing
 settings.POSTGRES_SERVER = os.getenv("POSTGRES_SERVER", "localhost")
@@ -79,6 +80,7 @@ def cleanup_database():
     from app.models.campaign import Campaign
     from app.models.job import Job
     from app.models.organization import Organization
+    from app.models.user import User
     
     # Clean before test
     db = TestingSessionLocal()
@@ -87,6 +89,7 @@ def cleanup_database():
         db.query(Job).delete()
         db.query(Campaign).delete()
         db.query(Organization).delete()
+        db.query(User).delete()  # Add user cleanup
         db.commit()
     except Exception:
         db.rollback()
@@ -101,6 +104,7 @@ def cleanup_database():
         db.query(Job).delete()
         db.query(Campaign).delete()
         db.query(Organization).delete()
+        db.query(User).delete()  # Add user cleanup
         db.commit()
     except Exception:
         db.rollback()
@@ -143,4 +147,53 @@ def multiple_organizations(db_session):
     db_session.commit()
     for org in orgs:
         db_session.refresh(org)
-    return orgs 
+    return orgs
+
+# Authentication fixtures
+from tests.helpers.auth_helpers import AuthHelpers
+
+@pytest.fixture
+def auth_helpers(db_session):
+    """Provide authentication helper utilities for tests."""
+    return AuthHelpers
+
+@pytest.fixture
+def test_user(db_session):
+    """Create a test user for authentication."""
+    return AuthHelpers.create_test_user(db_session)
+
+@pytest.fixture
+def authenticated_user(db_session):
+    """Create a user and return user, token, and headers."""
+    return AuthHelpers.create_authenticated_user(db_session)
+
+@pytest.fixture
+def authenticated_client(client, db_session):
+    """Create an authenticated client with user, token, and headers."""
+    user, token, headers = AuthHelpers.get_authenticated_client_data(client, db_session)
+    
+    # Create a wrapper that automatically includes auth headers
+    class AuthenticatedClient:
+        def __init__(self, client, headers, user, token):
+            self.client = client
+            self.headers = headers
+            self.user = user
+            self.token = token
+        
+        def get(self, url, **kwargs):
+            kwargs.setdefault('headers', {}).update(self.headers)
+            return self.client.get(url, **kwargs)
+        
+        def post(self, url, **kwargs):
+            kwargs.setdefault('headers', {}).update(self.headers)
+            return self.client.post(url, **kwargs)
+        
+        def patch(self, url, **kwargs):
+            kwargs.setdefault('headers', {}).update(self.headers)
+            return self.client.patch(url, **kwargs)
+        
+        def delete(self, url, **kwargs):
+            kwargs.setdefault('headers', {}).update(self.headers)
+            return self.client.delete(url, **kwargs)
+    
+    return AuthenticatedClient(client, headers, user, token) 
