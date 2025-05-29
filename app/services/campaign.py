@@ -1,6 +1,5 @@
 from typing import Dict, Any, Optional, List
 import re
-import logging
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -10,6 +9,8 @@ from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
 from app.models.job import Job, JobStatus, JobType
 from app.schemas.campaign import CampaignCreate, CampaignUpdate, CampaignStart
+from app.core.logger import get_logger
+
 try:
     from app.background_services.apollo_service import ApolloService
 except ImportError:
@@ -21,7 +22,7 @@ except ImportError:
     InstantlyService = None
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class CampaignService:

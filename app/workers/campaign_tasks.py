@@ -1,16 +1,21 @@
-import logging
+import os
+import json
+import time
 from datetime import datetime, timedelta
-from typing import Dict, Any
-from celery import current_task
+from typing import Dict, Any, List, Optional, Union
+from celery import Task
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.logger import get_logger
 from app.workers.celery_app import celery_app
-from app.core.database import SessionLocal
+from app.core.database import get_db
 from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
-from app.models.job import Job, JobStatus
+from app.models.job import Job, JobType, JobStatus
+from app.models.lead import Lead
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 @celery_app.task(bind=True, name="fetch_and_save_leads_task")
 def fetch_and_save_leads_task(self, job_params: Dict[str, Any], campaign_id: str, job_id: int):
@@ -22,7 +27,7 @@ def fetch_and_save_leads_task(self, job_params: Dict[str, Any], campaign_id: str
         campaign_id: ID of the campaign
         job_id: ID of the job to track progress
     """
-    db: Session = SessionLocal()
+    db: Session = get_db()
     
     try:
         logger.info(f"Starting fetch_and_save_leads_task for campaign {campaign_id}, job {job_id}")
@@ -42,7 +47,7 @@ def fetch_and_save_leads_task(self, job_params: Dict[str, Any], campaign_id: str
             raise ValueError(f"Campaign {campaign_id} not found")
         
         # Update task progress
-        current_task.update_state(
+        self.update_state(
             state="PROGRESS",
             meta={
                 "current": 1,
@@ -56,7 +61,7 @@ def fetch_and_save_leads_task(self, job_params: Dict[str, Any], campaign_id: str
             from app.background_services.apollo_service import ApolloService
             apollo_service = ApolloService()
             
-            current_task.update_state(
+            self.update_state(
                 state="PROGRESS",
                 meta={
                     "current": 2,
@@ -72,7 +77,7 @@ def fetch_and_save_leads_task(self, job_params: Dict[str, Any], campaign_id: str
                 campaign_id=campaign_id
             )
             
-            current_task.update_state(
+            self.update_state(
                 state="PROGRESS",
                 meta={
                     "current": 3,
@@ -94,7 +99,7 @@ def fetch_and_save_leads_task(self, job_params: Dict[str, Any], campaign_id: str
                 'errors': []
             }
         
-        current_task.update_state(
+        self.update_state(
             state="PROGRESS",
             meta={
                 "current": 4,
@@ -156,7 +161,7 @@ def cleanup_campaign_jobs_task(self, campaign_id: str, days: int):
         campaign_id: ID of the campaign
         days: Number of days to keep jobs (older jobs will be deleted)
     """
-    db: Session = SessionLocal()
+    db: Session = get_db()
     
     try:
         logger.info(f"Starting cleanup_campaign_jobs_task for campaign {campaign_id}, days={days}")
@@ -167,7 +172,7 @@ def cleanup_campaign_jobs_task(self, campaign_id: str, days: int):
             raise ValueError(f"Campaign {campaign_id} not found")
         
         # Update task progress
-        current_task.update_state(
+        self.update_state(
             state="PROGRESS",
             meta={
                 "current": 1,
@@ -179,7 +184,7 @@ def cleanup_campaign_jobs_task(self, campaign_id: str, days: int):
         # Calculate cutoff date
         cutoff_date = datetime.utcnow() - timedelta(days=days)
         
-        current_task.update_state(
+        self.update_state(
             state="PROGRESS",
             meta={
                 "current": 2,
@@ -199,7 +204,7 @@ def cleanup_campaign_jobs_task(self, campaign_id: str, days: int):
             .all()
         )
         
-        current_task.update_state(
+        self.update_state(
             state="PROGRESS",
             meta={
                 "current": 3,
@@ -250,7 +255,7 @@ def process_campaign_leads_task(self, campaign_id: str, processing_type: str = "
         campaign_id: ID of the campaign
         processing_type: Type of processing (enrichment, email_verification, etc.)
     """
-    db: Session = SessionLocal()
+    db: Session = get_db()
     
     try:
         logger.info(f"Starting process_campaign_leads_task for campaign {campaign_id}, type={processing_type}")
@@ -273,7 +278,7 @@ def process_campaign_leads_task(self, campaign_id: str, processing_type: str = "
         db.refresh(processing_job)
         
         # Update task progress
-        current_task.update_state(
+        self.update_state(
             state="PROGRESS",
             meta={
                 "current": 1,
@@ -285,7 +290,7 @@ def process_campaign_leads_task(self, campaign_id: str, processing_type: str = "
         # TODO: Implement actual lead processing logic
         # For now, this is a placeholder that simulates processing
         
-        current_task.update_state(
+        self.update_state(
             state="PROGRESS",
             meta={
                 "current": 2,
@@ -295,10 +300,9 @@ def process_campaign_leads_task(self, campaign_id: str, processing_type: str = "
         )
         
         # Simulate processing time
-        import time
         time.sleep(2)
         
-        current_task.update_state(
+        self.update_state(
             state="PROGRESS",
             meta={
                 "current": 3,
@@ -310,7 +314,7 @@ def process_campaign_leads_task(self, campaign_id: str, processing_type: str = "
         # Mock processing results
         processed_count = 0  # TODO: Replace with actual processing count
         
-        current_task.update_state(
+        self.update_state(
             state="PROGRESS",
             meta={
                 "current": 4,
@@ -353,7 +357,7 @@ def process_campaign_leads_task(self, campaign_id: str, processing_type: str = "
 @celery_app.task(name="campaign_health_check")
 def campaign_health_check():
     """Health check task specifically for campaign operations."""
-    db: Session = SessionLocal()
+    db: Session = get_db()
     
     try:
         # Check database connectivity

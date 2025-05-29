@@ -8,10 +8,16 @@ from datetime import datetime
 import json
 import traceback
 import apify_client
-import logging
+from sqlalchemy.orm import Session
+from app.models.lead import Lead
+from app.models.campaign import Campaign
+from app.models.job import Job, JobStatus
+from app.schemas.lead import LeadCreate
+from app.core.database import get_db
+from app.core.logger import get_logger
 from app.background_services.mock_apify_client import MockApifyClient
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 """
 IMPORTANT: Apify Python client (v1.10.0 and some other versions) expects webhook payload keys in snake_case (e.g., 'event_types', 'request_url', 'payload_template', 'idempotency_key'),

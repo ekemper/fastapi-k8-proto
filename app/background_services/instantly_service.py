@@ -1,8 +1,9 @@
 import os
 import requests
-import logging
 
-logger = logging.getLogger(__name__)
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 class InstantlyService:
     """Service for integrating with Instantly API to create leads."""

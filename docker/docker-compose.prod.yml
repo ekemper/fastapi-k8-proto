@@ -40,6 +40,8 @@ services:
       - POSTGRES_DB=fastapi_k8_proto
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+    volumes:
+      - ../logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,6 +62,8 @@ services:
       - POSTGRES_DB=fastapi_k8_proto
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+    volumes:
+      - ../logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,9 +82,13 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - FLOWER_UNAUTHENTICATED_API=1
+    volumes:
+      - ../logs:/app/logs
     depends_on:
       - redis
     command: celery -A app.workers.celery_app flower --port=5555
 
 volumes:
-  postgres_data: 
+  postgres_data:
+  logs:
+    driver: local 

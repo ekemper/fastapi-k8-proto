@@ -41,6 +41,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     volumes:
+      - ../logs:/app/logs
       - ../app:/app/app
       - ../alembic:/app/alembic
       - ../alembic.ini:/app/alembic.ini
@@ -66,6 +67,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     volumes:
+      - ../logs:/app/logs
       - ../app:/app/app
     depends_on:
       postgres:
@@ -85,6 +87,8 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - FLOWER_UNAUTHENTICATED_API=1
+    volumes:
+      - ../logs:/app/logs
     depends_on:
       - redis
     command: celery -A app.workers.celery_app flower --port=5555
@@ -112,4 +116,6 @@ services:
       command: ["npm", "run", "dev", "--", "--host", "--port", "5173"]
       
 volumes:
-  postgres_data: 
+  postgres_data:
+  logs:
+    driver: local 

@@ -29,5 +29,10 @@ services:
     command: >
       sh -c "/app/wait-for-it.sh test-db:5432 -t 30 -- /app/wait-for-it.sh test-redis:6379 -t 30 -- sh -c 'alembic upgrade head && pytest tests/ -v --cov=app --cov-report=html'"
     volumes:
+      - ../logs:/app/logs
       - ../tests:/app/tests
-      - ../htmlcov:/app/htmlcov 
+      - ../htmlcov:/app/htmlcov
+
+volumes:
+  logs:
+    driver: local 

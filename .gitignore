@@ -119,4 +119,7 @@ test.db
 Thumbs.db
 
 # Project specific
-alembic/versions/__pycache__/ 
+alembic/versions/__pycache__/
+
+# Logging
+logs/*.log 

@@ -2,9 +2,11 @@ import os
 import requests
 from app.models import Campaign, Lead
 from app.core.database import db
-from app.core.logging_config import app_logger
 from app.models.campaign_status import CampaignStatus
 from typing import Dict, Any, List
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 class EmailVerifierService:
     """Service for verifying emails using MillionVerifier API."""
@@ -34,7 +36,7 @@ class EmailVerifierService:
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            app_logger.error(f"Error verifying email {email}: {str(e)}", extra={'component': 'server'})
+            logger.error(f"Error verifying email {email}: {str(e)}", extra={'component': 'email_verifier'})
             return {
                 'status': 'error',
                 'error': str(e)

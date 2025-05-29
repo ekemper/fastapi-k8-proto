@@ -1,16 +1,17 @@
 from typing import Dict, Any, List, Optional, Tuple
 import re
-import logging
-from html import escape
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from fastapi import HTTPException, status
+from datetime import datetime
 
 from app.models.organization import Organization
 from app.models.campaign import Campaign
+from app.models.user import User
 from app.schemas.organization import OrganizationCreate, OrganizationUpdate
+from app.core.logger import get_logger
 
-
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class OrganizationService:

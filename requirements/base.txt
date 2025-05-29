@@ -12,4 +12,6 @@ flower==2.0.1
 requests>=2.31.0
 bcrypt>=4.0.1
 python-jose[cryptography]>=3.3.0
-email-validator>=2.0.0 
+email-validator>=2.0.0
+python-json-logger==2.0.7
+colorama==0.4.6 

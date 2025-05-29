@@ -4,10 +4,11 @@ from fastapi import HTTPException, status
 from app.models.lead import Lead
 from app.schemas.lead import LeadCreate, LeadUpdate
 from sqlalchemy.exc import SQLAlchemyError
-import logging
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 class LeadService:
     """Service for handling lead-related operations."""

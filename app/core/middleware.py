@@ -3,13 +3,13 @@ from fastapi import Request, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-import logging
 import os
 
 from app.services.auth_service import AuthService
 from app.core.database import SessionLocal, get_db
+from app.core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     """
