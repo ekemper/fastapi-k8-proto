@@ -16,13 +16,13 @@ def test_celery_health_check(client):
     assert result["status"] == "healthy"
     assert "timestamp" in result
 
-def test_create_job_endpoint(authenticated_client, sample_campaign):
+def test_create_job_endpoint(authenticated_client, existing_campaign):
     """Test job creation endpoint integration."""
     # Create a campaign first 
     campaign_payload = {
         "name": "Test Campaign for Jobs",
         "description": "Campaign for job tests",
-        "organization_id": sample_campaign.organization_id,
+        "organization_id": existing_campaign.organization_id,
         "fileName": "job_test.csv",
         "totalRecords": 10,
         "url": "https://app.apollo.io/#/job-test"
@@ -38,9 +38,8 @@ def test_create_job_endpoint(authenticated_client, sample_campaign):
     # Create a job for the campaign
     job_payload = {
         "name": "Test Job",
-        "job_type": "data_processing",
-        "campaign_id": campaign_data["id"],
-        "status": "pending"
+        "job_type": "GENERAL",
+        "campaign_id": campaign_data["id"]
     }
     
     response = authenticated_client.post("/api/v1/jobs/", json=job_payload)
@@ -53,17 +52,17 @@ def test_create_job_endpoint(authenticated_client, sample_campaign):
     
     job_data = response_data["data"]
     assert job_data["name"] == "Test Job"
-    assert job_data["job_type"] == "data_processing"
+    assert job_data["job_type"] == "GENERAL"
     assert job_data["campaign_id"] == campaign_data["id"]
     assert "id" in job_data
 
-def test_job_status_endpoint(authenticated_client, sample_campaign):
+def test_job_status_endpoint(authenticated_client, existing_campaign):
     """Test job status retrieval."""
     # Create a campaign first
     campaign_payload = {
         "name": "Test Campaign for Job Status",
         "description": "Campaign for job status tests",
-        "organization_id": sample_campaign.organization_id,
+        "organization_id": existing_campaign.organization_id,
         "fileName": "job_status_test.csv",
         "totalRecords": 5,
         "url": "https://app.apollo.io/#/job-status-test"
@@ -79,9 +78,8 @@ def test_job_status_endpoint(authenticated_client, sample_campaign):
     # Create a job
     job_payload = {
         "name": "Status Test Job",
-        "job_type": "status_check",
-        "campaign_id": campaign_data["id"],
-        "status": "running"
+        "job_type": "GENERAL",
+        "campaign_id": campaign_data["id"]
     }
     
     job_response = authenticated_client.post("/api/v1/jobs/", json=job_payload)
@@ -102,15 +100,15 @@ def test_job_status_endpoint(authenticated_client, sample_campaign):
     
     job_status = status_data["data"]
     assert job_status["id"] == job_data["id"]
-    assert job_status["status"] == "running"
+    assert job_status["status"] == "pending"  # Jobs are created with PENDING status by default
 
-def test_list_jobs_endpoint(authenticated_client, sample_campaign):
+def test_list_jobs_endpoint(authenticated_client, existing_campaign):
     """Test jobs listing endpoint."""
     # Create a campaign first
     campaign_payload = {
         "name": "Test Campaign for Job List",
         "description": "Campaign for job list tests",
-        "organization_id": sample_campaign.organization_id,
+        "organization_id": existing_campaign.organization_id,
         "fileName": "job_list_test.csv",
         "totalRecords": 8,
         "url": "https://app.apollo.io/#/job-list-test"
@@ -127,9 +125,8 @@ def test_list_jobs_endpoint(authenticated_client, sample_campaign):
     for i in range(3):
         job_payload = {
             "name": f"List Test Job {i}",
-            "job_type": "list_test",
-            "campaign_id": campaign_data["id"],
-            "status": "pending"
+            "job_type": "GENERAL",
+            "campaign_id": campaign_data["id"]
         }
         job_response = authenticated_client.post("/api/v1/jobs/", json=job_payload)
         assert job_response.status_code == 201
@@ -147,13 +144,13 @@ def test_list_jobs_endpoint(authenticated_client, sample_campaign):
     assert "jobs" in jobs_data
     assert len(jobs_data["jobs"]) >= 3  # May have jobs from other tests
 
-def test_cancel_job_endpoint(authenticated_client, sample_campaign):
+def test_cancel_job_endpoint(authenticated_client, existing_campaign):
     """Test job cancellation."""
     # Create a campaign first
     campaign_payload = {
         "name": "Test Campaign for Job Cancel",
         "description": "Campaign for job cancel tests",
-        "organization_id": sample_campaign.organization_id,
+        "organization_id": existing_campaign.organization_id,
         "fileName": "job_cancel_test.csv",
         "totalRecords": 12,
         "url": "https://app.apollo.io/#/job-cancel-test"
@@ -169,9 +166,8 @@ def test_cancel_job_endpoint(authenticated_client, sample_campaign):
     # Create a job to cancel
     job_payload = {
         "name": "Cancel Test Job",
-        "job_type": "cancel_test",
-        "campaign_id": campaign_data["id"],
-        "status": "running"
+        "job_type": "GENERAL",
+        "campaign_id": campaign_data["id"]
     }
     
     job_response = authenticated_client.post("/api/v1/jobs/", json=job_payload)
@@ -199,4 +195,4 @@ def test_cancel_job_endpoint(authenticated_client, sample_campaign):
     assert status_response_data["status"] == "success"
     
     job_status = status_response_data["data"]
-    assert job_status["status"] in ["cancelled", "canceled"]  # Allow both spellings 
+    assert job_status["status"] in ["cancelled", "CANCELLED"]  # Allow both spellings and cases 

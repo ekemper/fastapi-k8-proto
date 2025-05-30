@@ -53,6 +53,8 @@ async def create_job(
     job = Job(
         name=job_in.name,
         description=job_in.description,
+        job_type=job_in.job_type,
+        campaign_id=job_in.campaign_id,
         status=JobStatus.PENDING
     )
     db.add(job)
@@ -138,7 +140,7 @@ async def get_job_status(
         )
     
     response_data = {
-        "job_id": job.id,
+        "id": job.id,
         "status": job.status,
         "created_at": job.created_at,
         "updated_at": job.updated_at,
@@ -158,6 +160,39 @@ async def get_job_status(
     return JobStatusResponse(
         status="success",
         data=response_data
+    )
+
+@router.post("/{job_id}/cancel", response_model=JobCancelResponse)
+async def cancel_job_post(
+    job_id: int,
+    db: Session = Depends(get_db)
+):
+    """Cancel a pending or processing job (POST endpoint)"""
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found"
+        )
+    
+    if job.status not in [JobStatus.PENDING, JobStatus.PROCESSING]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot cancel job in {job.status} status"
+        )
+    
+    # Revoke Celery task if it exists
+    if job.task_id:
+        from app.workers.celery_app import celery_app
+        celery_app.control.revoke(job.task_id, terminate=True)
+    
+    # Update job status
+    job.status = JobStatus.CANCELLED
+    db.commit()
+    
+    return JobCancelResponse(
+        status="success",
+        message=f"Job {job_id} cancelled"
     )
 
 @router.delete("/{job_id}", response_model=JobCancelResponse)

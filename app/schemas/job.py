@@ -2,14 +2,15 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
 
-from app.models.job import JobStatus
+from app.models.job import JobStatus, JobType
 
 class JobBase(BaseModel):
     name: str
     description: Optional[str] = None
 
 class JobCreate(JobBase):
-    pass
+    job_type: Optional[JobType] = JobType.GENERAL
+    campaign_id: Optional[str] = None
 
 class JobUpdate(BaseModel):
     status: Optional[JobStatus] = None
@@ -18,10 +19,12 @@ class JobUpdate(BaseModel):
 
 class JobInDB(JobBase):
     id: int
-    task_id: str
+    task_id: Optional[str] = None
+    job_type: JobType
     status: JobStatus
     result: Optional[str] = None
     error: Optional[str] = None
+    campaign_id: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

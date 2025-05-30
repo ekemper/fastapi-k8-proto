@@ -34,14 +34,9 @@ from tests.helpers.instantly_mock import mock_instantly_service
 # client = TestClient(app)
 
 @pytest.fixture
-def db_session(test_db_session):
-    """Create a fresh database session for each test."""
-    return test_db_session
-
-@pytest.fixture
-def db_helpers(db_session):
+def db_helpers(test_db_session):
     """Create DatabaseHelpers instance for testing."""
-    return DatabaseHelpers(db_session)
+    return DatabaseHelpers(test_db_session)
 
 @pytest.fixture(autouse=True, scope="module")
 def mock_instantly_service():

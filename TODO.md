@@ -1,7 +1,5 @@
 
 
-TODO: test  front end migration
-
 TODO: create test flow for starting campaign and fetching leads
     * use the old workflow test as a reference, and utilize the new test: "test complete api integration"
 

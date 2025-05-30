@@ -12,6 +12,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
+from app.models.lead import Lead
 
 # Import all campaign fixtures
 from tests.fixtures.campaign_fixtures import *
@@ -86,11 +87,14 @@ def cleanup_database():
     from app.models.job import Job
     from app.models.organization import Organization
     from app.models.user import User
+    from app.models.lead import Lead
     
     # Clean before test
     db = TestingSessionLocal()
     try:
         # Delete in correct order to respect foreign keys
+        # Leads must be deleted before campaigns
+        db.query(Lead).delete()
         db.query(Job).delete()
         db.query(Campaign).delete()
         db.query(Organization).delete()
@@ -106,6 +110,9 @@ def cleanup_database():
     # Clean after test (backup cleanup)
     db = TestingSessionLocal()
     try:
+        # Delete in correct order to respect foreign keys
+        # Leads must be deleted before campaigns
+        db.query(Lead).delete()
         db.query(Job).delete()
         db.query(Campaign).delete()
         db.query(Organization).delete()
