@@ -52,18 +52,21 @@ def test_list_organizations_with_campaign_counts(authenticated_client, test_db_s
         }
         response = authenticated_client.post("/api/v1/campaigns/", json=campaign_payload)
         assert response.status_code == 201
-    
+
     # List organizations
     response = authenticated_client.get("/api/v1/organizations/")
     assert response.status_code == 200
+
+    orgs_response = response.json()
+    # Check paginated response structure
+    assert "data" in orgs_response
+    assert "meta" in orgs_response
+    assert len(orgs_response["data"]) == 1
     
-    orgs_data = response.json()
-    assert len(orgs_data) == 1
-    
-    org_data = orgs_data[0]
+    org_data = orgs_response["data"][0]
     assert org_data["id"] == organization.id
     assert org_data["campaign_count"] == 3
-    
+
     # Verify in database
     db_campaigns = test_db_session.query(Campaign).filter(
         Campaign.organization_id == organization.id
@@ -87,7 +90,14 @@ def test_create_campaign_with_organization(authenticated_client, test_db_session
     response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     
     assert response.status_code == 201
-    campaign_data = response.json()
+    response_data = response.json()
+    
+    # Check structured response format
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    
+    campaign_data = response_data["data"]
     
     # Verify API response includes organization_id
     assert campaign_data["organization_id"] == organization.id
@@ -146,7 +156,11 @@ def test_list_campaigns_filtered_by_organization(authenticated_client, test_db_s
         }
         response = authenticated_client.post("/api/v1/campaigns/", json=payload)
         assert response.status_code == 201
-        campaigns_org1.append(response.json())
+        response_data = response.json()
+        assert "status" in response_data
+        assert "data" in response_data
+        assert response_data["status"] == "success"
+        campaigns_org1.append(response_data["data"])
     
     # Create 3 campaigns for org2
     for i in range(3):
@@ -159,13 +173,22 @@ def test_list_campaigns_filtered_by_organization(authenticated_client, test_db_s
         }
         response = authenticated_client.post("/api/v1/campaigns/", json=payload)
         assert response.status_code == 201
-        campaigns_org2.append(response.json())
+        response_data = response.json()
+        assert "status" in response_data
+        assert "data" in response_data
+        assert response_data["status"] == "success"
+        campaigns_org2.append(response_data["data"])
     
     # Test filtering by org1
     response = authenticated_client.get(f"/api/v1/campaigns/?organization_id={org1.id}")
     assert response.status_code == 200
     
-    org1_campaigns = response.json()
+    org1_response = response.json()
+    assert "status" in org1_response
+    assert "data" in org1_response
+    assert org1_response["status"] == "success"
+    
+    org1_campaigns = org1_response["data"]["campaigns"]
     assert len(org1_campaigns) == 2
     for campaign in org1_campaigns:
         assert campaign["organization_id"] == org1.id
@@ -174,7 +197,12 @@ def test_list_campaigns_filtered_by_organization(authenticated_client, test_db_s
     response = authenticated_client.get(f"/api/v1/campaigns/?organization_id={org2.id}")
     assert response.status_code == 200
     
-    org2_campaigns = response.json()
+    org2_response = response.json()
+    assert "status" in org2_response
+    assert "data" in org2_response
+    assert org2_response["status"] == "success"
+    
+    org2_campaigns = org2_response["data"]["campaigns"]
     assert len(org2_campaigns) == 3
     for campaign in org2_campaigns:
         assert campaign["organization_id"] == org2.id
@@ -183,7 +211,12 @@ def test_list_campaigns_filtered_by_organization(authenticated_client, test_db_s
     response = authenticated_client.get(f"/api/v1/campaigns/?organization_id={org3.id}")
     assert response.status_code == 200
     
-    org3_campaigns = response.json()
+    org3_response = response.json()
+    assert "status" in org3_response
+    assert "data" in org3_response
+    assert org3_response["status"] == "success"
+    
+    org3_campaigns = org3_response["data"]["campaigns"]
     assert len(org3_campaigns) == 0
 
 
@@ -201,21 +234,27 @@ def test_organization_campaigns_endpoint(authenticated_client, test_db_session, 
         }
         response = authenticated_client.post("/api/v1/campaigns/", json=payload)
         assert response.status_code == 201
-        created_campaigns.append(response.json())
+        response_data = response.json()
+        assert "status" in response_data
+        assert "data" in response_data
+        assert response_data["status"] == "success"
+        created_campaigns.append(response_data["data"])
     
     # Get campaigns through organization endpoint
     response = authenticated_client.get(f"/api/v1/organizations/{organization.id}/campaigns")
     assert response.status_code == 200
     
-    campaigns_data = response.json()
-    assert len(campaigns_data) == 3
+    campaigns_response = response.json()
+    # The organization campaigns endpoint returns List[CampaignResponse] directly
+    assert isinstance(campaigns_response, list)
+    assert len(campaigns_response) == 3
     
     # Verify all campaigns belong to the organization
-    for campaign in campaigns_data:
+    for campaign in campaigns_response:
         assert campaign["organization_id"] == organization.id
     
     # Verify campaign names match what we created
-    campaign_names = {c["name"] for c in campaigns_data}
+    campaign_names = {c["name"] for c in campaigns_response}
     expected_names = {c["name"] for c in created_campaigns}
     assert campaign_names == expected_names
 
@@ -273,7 +312,11 @@ def test_campaign_organization_relationship(authenticated_client, test_db_sessio
     }
     response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     assert response.status_code == 201
-    campaign_data = response.json()
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    campaign_data = response_data["data"]
     
     # Verify in database through relationship
     db_campaign = test_db_session.query(Campaign).filter(
@@ -303,14 +346,22 @@ def test_update_campaign_organization(authenticated_client, test_db_session, mul
     }
     response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     assert response.status_code == 201
-    campaign_data = response.json()
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    campaign_data = response_data["data"]
     
     # Update campaign to belong to org2
     update_payload = {"organization_id": org2.id}
     response = authenticated_client.patch(f"/api/v1/campaigns/{campaign_data['id']}", json=update_payload)
     assert response.status_code == 200
     
-    updated_campaign = response.json()
+    updated_response = response.json()
+    assert "status" in updated_response
+    assert "data" in updated_response
+    assert updated_response["status"] == "success"
+    updated_campaign = updated_response["data"]
     assert updated_campaign["organization_id"] == org2.id
     
     # Verify in database
@@ -347,7 +398,11 @@ def test_update_campaign_invalid_organization(authenticated_client, test_db_sess
     }
     response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     assert response.status_code == 201
-    campaign_data = response.json()
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    campaign_data = response_data["data"]
     
     # Try to update with invalid organization
     invalid_org_id = str(uuid.uuid4())
@@ -474,7 +529,11 @@ def test_multiple_campaign_creation_same_organization(authenticated_client, test
         }
         response = authenticated_client.post("/api/v1/campaigns/", json=payload)
         assert response.status_code == 201
-        created_campaigns.append(response.json())
+        response_data = response.json()
+        assert "status" in response_data
+        assert "data" in response_data
+        assert response_data["status"] == "success"
+        created_campaigns.append(response_data["data"])
     
     # Verify all campaigns belong to the same organization
     for campaign in created_campaigns:

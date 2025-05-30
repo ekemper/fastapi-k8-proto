@@ -1,5 +1,6 @@
 from typing import Dict, Any, List, Optional, Tuple
 import re
+from html import escape
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from fastapi import HTTPException, status
@@ -127,12 +128,23 @@ class OrganizationService:
                 detail=f"Error fetching organization: {str(e)}"
             )
 
-    async def get_organizations(self, db: Session) -> List[Dict[str, Any]]:
-        """Get all organizations."""
+    async def get_organizations(self, db: Session, skip: int = 0, limit: int = 100, search: str = None) -> List[Dict[str, Any]]:
+        """Get organizations with optional pagination and search."""
         try:
-            logger.info('Fetching all organizations')
+            logger.info(f'Fetching organizations with skip={skip}, limit={limit}, search={search}')
             
-            organizations = db.query(Organization).order_by(Organization.created_at.desc()).all()
+            query = db.query(Organization)
+            
+            # Apply search filter if provided
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    Organization.name.ilike(search_term) | 
+                    Organization.description.ilike(search_term)
+                )
+            
+            # Apply pagination and ordering
+            organizations = query.order_by(Organization.created_at.desc()).offset(skip).limit(limit).all()
             logger.info(f'Found {len(organizations)} organizations')
             
             return [org.to_dict() for org in organizations]
@@ -142,6 +154,33 @@ class OrganizationService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error fetching organizations: {str(e)}"
+            )
+
+    async def count_organizations(self, db: Session, search: str = None) -> int:
+        """Count total organizations with optional search filter."""
+        try:
+            logger.info(f'Counting organizations with search={search}')
+            
+            query = db.query(Organization)
+            
+            # Apply search filter if provided
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    Organization.name.ilike(search_term) | 
+                    Organization.description.ilike(search_term)
+                )
+            
+            count = query.count()
+            logger.info(f'Total organizations count: {count}')
+            
+            return count
+            
+        except Exception as e:
+            logger.error(f'Error counting organizations: {str(e)}', exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error counting organizations: {str(e)}"
             )
 
     async def update_organization(self, org_id: str, update_data: OrganizationUpdate, db: Session) -> Optional[Dict[str, Any]]:

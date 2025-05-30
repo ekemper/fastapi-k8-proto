@@ -25,8 +25,14 @@ def test_create_campaign(sample_campaign_data, authenticated_client):
     response = authenticated_client.post("/api/v1/campaigns/", json=sample_campaign_data)
     
     assert response.status_code == 201
-    data = response.json()
+    response_data = response.json()
     
+    # Check structured response format
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    
+    data = response_data["data"]
     assert data["name"] == sample_campaign_data["name"]
     assert data["description"] == sample_campaign_data["description"]
     assert data["status"] == CampaignStatus.CREATED.value
@@ -42,9 +48,16 @@ def test_list_campaigns(authenticated_client):
     response = authenticated_client.get("/api/v1/campaigns/")
     
     assert response.status_code == 200
-    data = response.json()
+    response_data = response.json()
     
-    assert isinstance(data, list)
+    # Check structured response format
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    
+    data = response_data["data"]
+    assert "campaigns" in data
+    assert isinstance(data["campaigns"], list)
 
 def test_get_campaign_not_found(authenticated_client):
     """Test getting a non-existent campaign."""
@@ -94,20 +107,32 @@ def test_campaign_workflow(sample_campaign_data, authenticated_client):
     # 1. Create campaign
     response = authenticated_client.post("/api/v1/campaigns/", json=sample_campaign_data)
     assert response.status_code == 201
-    campaign = response.json()
+    campaign_response = response.json()
+    assert "status" in campaign_response
+    assert "data" in campaign_response
+    assert campaign_response["status"] == "success"
+    campaign = campaign_response["data"]
     campaign_id = campaign["id"]
     
     # 2. Get campaign
     response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}")
     assert response.status_code == 200
-    retrieved_campaign = response.json()
+    retrieved_response = response.json()
+    assert "status" in retrieved_response
+    assert "data" in retrieved_response
+    assert retrieved_response["status"] == "success"
+    retrieved_campaign = retrieved_response["data"]
     assert retrieved_campaign["id"] == campaign_id
     
     # 3. Update campaign
     update_data = {"name": "Updated Test Campaign"}
     response = authenticated_client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
     assert response.status_code == 200
-    updated_campaign = response.json()
+    updated_response = response.json()
+    assert "status" in updated_response
+    assert "data" in updated_response
+    assert updated_response["status"] == "success"
+    updated_campaign = updated_response["data"]
     assert updated_campaign["name"] == "Updated Test Campaign"
     
     # 4. Get campaign details

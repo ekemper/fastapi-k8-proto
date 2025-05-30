@@ -87,4 +87,14 @@ class CampaignStatusUpdate(BaseModel):
     status: CampaignStatus = Field(..., description="New campaign status")
     status_message: Optional[str] = Field(None, description="Optional status message")
     status_error: Optional[str] = Field(None, description="Optional error message")
-    instantly_campaign_id: Optional[str] = Field(None, max_length=64, description="Instantly campaign ID") 
+    instantly_campaign_id: Optional[str] = Field(None, max_length=64, description="Instantly campaign ID")
+
+
+class CampaignStatusResponse(BaseModel):
+    """Schema for campaign status API response containing essential status information."""
+    campaign_id: str = Field(..., max_length=36, description="Unique campaign identifier")
+    campaign_name: str = Field(..., min_length=1, max_length=255, description="Campaign name")
+    campaign_status: CampaignStatus = Field(..., description="Current campaign status")
+
+    class Config:
+        from_attributes = True 

@@ -357,7 +357,8 @@ def process_campaign_leads_task(self, campaign_id: str, processing_type: str = "
 @celery_app.task(name="campaign_health_check")
 def campaign_health_check():
     """Health check task specifically for campaign operations."""
-    db: Session = get_db()
+    db_gen = get_db()
+    db: Session = next(db_gen)
     
     try:
         # Check database connectivity

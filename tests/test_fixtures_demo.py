@@ -24,7 +24,14 @@ def test_create_campaign_with_sample_data(api_client, sample_campaign_data, db_h
     response = api_client.post("/api/v1/campaigns/", json=sample_campaign_data)
     
     assert response.status_code == status.HTTP_201_CREATED
-    campaign_data = response.json()
+    response_data = response.json()
+    
+    # Check structured response format
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    
+    campaign_data = response_data["data"]
     
     # Use database helpers to verify creation
     db_helpers.verify_campaign_in_db(campaign_data["id"], {
@@ -74,27 +81,33 @@ def test_update_existing_campaign(api_client, existing_campaign, campaign_update
 
 def test_campaign_list_with_pagination(api_client, multiple_campaigns, pagination_test_data):
     """Demonstrate pagination testing using multiple campaigns fixture."""
-    # Test first page
-    first_page = pagination_test_data["first_page"]
-    response = api_client.get(
-        f"/api/v1/campaigns/?skip={first_page['skip']}&limit={first_page['limit']}"
-    )
+    # Test first page (page=1, per_page=2)
+    response = api_client.get("/api/v1/campaigns/?page=1&per_page=2")
     
     assert response.status_code == status.HTTP_200_OK
-    campaigns = response.json()
-    assert len(campaigns) <= first_page["limit"]
+    response_data = response.json()
     
-    # Test second page
-    second_page = pagination_test_data["second_page"]
-    response = api_client.get(
-        f"/api/v1/campaigns/?skip={second_page['skip']}&limit={second_page['limit']}"
-    )
+    # Check structured response format
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    
+    campaigns = response_data["data"]["campaigns"]
+    assert len(campaigns) <= 2  # Should have at most 2 campaigns
+    
+    # Test second page (page=2, per_page=2)
+    response = api_client.get("/api/v1/campaigns/?page=2&per_page=2")
     
     assert response.status_code == status.HTTP_200_OK
-    second_page_campaigns = response.json()
+    second_response_data = response.json()
+    assert "status" in second_response_data
+    assert "data" in second_response_data
+    assert second_response_data["status"] == "success"
+    
+    second_page_campaigns = second_response_data["data"]["campaigns"]
     
     # Should have different campaigns (if enough data)
-    if len(campaigns) == first_page["limit"] and len(second_page_campaigns) > 0:
+    if len(campaigns) == 2 and len(second_page_campaigns) > 0:
         first_page_ids = {c["id"] for c in campaigns}
         second_page_ids = {c["id"] for c in second_page_campaigns}
         assert first_page_ids.isdisjoint(second_page_ids)
@@ -160,12 +173,20 @@ def test_list_performance_with_large_dataset(api_client, large_dataset_campaigns
     end_time = time.time()
     
     assert response.status_code == status.HTTP_200_OK
-    campaigns = response.json()
+    response_data = response.json()
     
-    # Should return all campaigns
-    assert len(campaigns) == len(large_dataset_campaigns)
+    # Check structured response format
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
     
-    # Should respond quickly (under 2 seconds for 50 campaigns)
+    campaigns = response_data["data"]["campaigns"]
+    
+    # By default, API returns first page with 10 campaigns (per_page=10)
+    # We have 50 campaigns, so we should get 10 campaigns on the first page
+    assert len(campaigns) == min(10, len(large_dataset_campaigns))
+    
+    # Should respond quickly (under 2 seconds for paginated result)
     response_time = end_time - start_time
     assert response_time < 2.0
 
@@ -187,7 +208,14 @@ def test_concurrent_campaign_updates(api_client, existing_campaign, concurrent_a
     
     # Final state should reflect last update
     final_response = api_client.get(f"/api/v1/campaigns/{campaign_id}")
-    final_campaign = final_response.json()
+    assert final_response.status_code == status.HTTP_200_OK
+    
+    final_response_data = final_response.json()
+    assert "status" in final_response_data
+    assert "data" in final_response_data
+    assert final_response_data["status"] == "success"
+    
+    final_campaign = final_response_data["data"]
     assert final_campaign["name"] == updates[-1]["name"]
 
 
@@ -237,7 +265,13 @@ def test_complete_campaign_lifecycle(
     # 1. Create campaign
     create_response = api_client.post("/api/v1/campaigns/", json=sample_campaign_data)
     assert create_response.status_code == status.HTTP_201_CREATED
-    campaign = create_response.json()
+    
+    create_response_data = create_response.json()
+    assert "status" in create_response_data
+    assert "data" in create_response_data
+    assert create_response_data["status"] == "success"
+    
+    campaign = create_response_data["data"]
     campaign_id = campaign["id"]
     
     # Verify creation in database
@@ -259,7 +293,13 @@ def test_complete_campaign_lifecycle(
     # 3. Get campaign details
     details_response = api_client.get(f"/api/v1/campaigns/{campaign_id}")
     assert details_response.status_code == status.HTTP_200_OK
-    details = details_response.json()
+    
+    details_response_data = details_response.json()
+    assert "status" in details_response_data
+    assert "data" in details_response_data
+    assert details_response_data["status"] == "success"
+    
+    details = details_response_data["data"]
     assert details["name"] == update_data["name"]
     
     # 4. Verify timestamps are properly maintained
@@ -288,7 +328,13 @@ def test_multi_campaign_operations(
     # List all campaigns
     list_response = api_client.get("/api/v1/campaigns/")
     assert list_response.status_code == status.HTTP_200_OK
-    campaigns = list_response.json()
+    
+    list_response_data = list_response.json()
+    assert "status" in list_response_data
+    assert "data" in list_response_data
+    assert list_response_data["status"] == "success"
+    
+    campaigns = list_response_data["data"]["campaigns"]
     assert len(campaigns) == initial_count + 1
     
     # Verify each campaign has unique ID
@@ -332,7 +378,13 @@ def test_database_and_api_consistency(
     # Create via API
     api_response = api_client.post("/api/v1/campaigns/", json=sample_campaign_data)
     assert api_response.status_code == status.HTTP_201_CREATED
-    api_campaign = api_response.json()
+    
+    api_response_data = api_response.json()
+    assert "status" in api_response_data
+    assert "data" in api_response_data
+    assert api_response_data["status"] == "success"
+    
+    api_campaign = api_response_data["data"]
     
     # Verify via database helpers
     db_campaign = db_helpers.verify_campaign_in_db(api_campaign["id"])

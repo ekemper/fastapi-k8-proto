@@ -1,15 +1,49 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+import math
 
 from app.core.database import get_db
 from app.models.job import Job, JobStatus
 from app.schemas.job import JobCreate, JobResponse, JobUpdate
 from app.workers.tasks import process_job
+from pydantic import BaseModel
+
+# Response models for consistent API structure
+class JobListData(BaseModel):
+    jobs: List[JobResponse]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+class JobsListResponse(BaseModel):
+    status: str
+    data: JobListData
+
+class JobDetailResponse(BaseModel):
+    status: str
+    data: JobResponse
+
+class JobCreateResponse(BaseModel):
+    status: str
+    data: JobResponse
+
+class JobUpdateResponse(BaseModel):
+    status: str
+    data: JobResponse
+
+class JobStatusResponse(BaseModel):
+    status: str
+    data: dict
+
+class JobCancelResponse(BaseModel):
+    status: str
+    message: str
 
 router = APIRouter()
 
-@router.post("/", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=JobCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
     job_in: JobCreate,
     db: Session = Depends(get_db)
@@ -33,24 +67,46 @@ async def create_job(
     db.commit()
     db.refresh(job)
     
-    return job
+    return JobCreateResponse(
+        status="success",
+        data=job
+    )
 
-@router.get("/", response_model=List[JobResponse])
+@router.get("/", response_model=JobsListResponse)
 async def list_jobs(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    status: Optional[JobStatus] = None,
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(10, ge=1, le=100, description="Items per page"),
+    status_filter: Optional[JobStatus] = Query(None, alias="status", description="Filter by job status"),
     db: Session = Depends(get_db)
 ):
-    """List all jobs with optional status filter"""
+    """List all jobs with optional status filter and pagination"""
+    # Build query
     query = db.query(Job)
-    if status:
-        query = query.filter(Job.status == status)
+    if status_filter:
+        query = query.filter(Job.status == status_filter)
     
-    jobs = query.offset(skip).limit(limit).all()
-    return jobs
+    # Get total count
+    total_jobs = query.count()
+    
+    # Calculate pagination
+    total_pages = math.ceil(total_jobs / per_page) if total_jobs > 0 else 1
+    skip = (page - 1) * per_page
+    
+    # Get paginated jobs
+    jobs = query.offset(skip).limit(per_page).all()
+    
+    # Create response data
+    data = JobListData(
+        jobs=jobs,
+        total=total_jobs,
+        page=page,
+        per_page=per_page,
+        pages=total_pages
+    )
+    
+    return JobsListResponse(status="success", data=data)
 
-@router.get("/{job_id}", response_model=JobResponse)
+@router.get("/{job_id}", response_model=JobDetailResponse)
 async def get_job(
     job_id: int,
     db: Session = Depends(get_db)
@@ -62,9 +118,13 @@ async def get_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job {job_id} not found"
         )
-    return job
+    
+    return JobDetailResponse(
+        status="success",
+        data=job
+    )
 
-@router.get("/{job_id}/status")
+@router.get("/{job_id}/status", response_model=JobStatusResponse)
 async def get_job_status(
     job_id: int,
     db: Session = Depends(get_db)
@@ -77,7 +137,7 @@ async def get_job_status(
             detail=f"Job {job_id} not found"
         )
     
-    response = {
+    response_data = {
         "job_id": job.id,
         "status": job.status,
         "created_at": job.created_at,
@@ -91,13 +151,16 @@ async def get_job_status(
         task_result = celery_app.AsyncResult(job.task_id)
         
         if task_result.state == "PROGRESS":
-            response["progress"] = task_result.info
+            response_data["progress"] = task_result.info
         else:
-            response["task_state"] = task_result.state
+            response_data["task_state"] = task_result.state
     
-    return response
+    return JobStatusResponse(
+        status="success",
+        data=response_data
+    )
 
-@router.delete("/{job_id}")
+@router.delete("/{job_id}", response_model=JobCancelResponse)
 async def cancel_job(
     job_id: int,
     db: Session = Depends(get_db)
@@ -125,4 +188,7 @@ async def cancel_job(
     job.status = JobStatus.CANCELLED
     db.commit()
     
-    return {"message": f"Job {job_id} cancelled"} 
+    return JobCancelResponse(
+        status="success",
+        message=f"Job {job_id} cancelled"
+    ) 

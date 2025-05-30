@@ -171,8 +171,12 @@ def test_list_organizations_empty(authenticated_client, db_session):
     
     assert response.status_code == 200
     data = response.json()
-    assert isinstance(data, list)
-    assert len(data) == 0
+    # Check for paginated response structure
+    assert "data" in data
+    assert "meta" in data
+    assert isinstance(data["data"], list)
+    assert len(data["data"]) == 0
+    assert data["meta"]["total"] == 0
     
     # Verify database is empty
     verify_no_organization_in_db(db_session)
@@ -191,11 +195,17 @@ def test_list_organizations_multiple(authenticated_client, db_session, organizat
     # List organizations
     response = authenticated_client.get("/api/v1/organizations/")
     assert response.status_code == 200
-    data = response.json()
-    assert len(data) == 3
+    response_data = response.json()
+    
+    # Check paginated response structure
+    assert "data" in response_data
+    assert "meta" in response_data
+    organizations = response_data["data"]
+    assert len(organizations) == 3
+    assert response_data["meta"]["total"] == 3
     
     # Verify all organizations are returned
-    returned_ids = {org["id"] for org in data}
+    returned_ids = {org["id"] for org in organizations}
     expected_ids = {org["id"] for org in created_orgs}
     assert returned_ids == expected_ids
     
@@ -216,18 +226,24 @@ def test_list_organizations_order(authenticated_client, db_session, organization
     # List organizations
     response = authenticated_client.get("/api/v1/organizations/")
     assert response.status_code == 200
-    data = response.json()
+    response_data = response.json()
+    
+    # Check paginated response structure
+    assert "data" in response_data
+    assert "meta" in response_data
+    organizations = response_data["data"]
     
     # Verify we got all organizations
-    assert len(data) == 3
+    assert len(organizations) == 3
+    assert response_data["meta"]["total"] == 3
     
     # Verify all created organizations are in the response
     created_names = {org["name"] for org in created_orgs}
-    returned_names = {org["name"] for org in data}
+    returned_names = {org["name"] for org in organizations}
     assert created_names == returned_names
     
     # Verify organizations have required fields
-    for org in data:
+    for org in organizations:
         assert "id" in org
         assert "name" in org
         assert "description" in org
@@ -409,7 +425,12 @@ def test_organization_with_campaigns(authenticated_client, db_session, organizat
     assert campaign_response.status_code == 201
     
     # Verify campaign is linked to organization
-    campaign_data = campaign_response.json()
+    campaign_response_data = campaign_response.json()
+    assert "status" in campaign_response_data
+    assert "data" in campaign_response_data
+    assert campaign_response_data["status"] == "success"
+    
+    campaign_data = campaign_response_data["data"]
     assert campaign_data["organization_id"] == org_id
     
     # Verify in database
@@ -495,8 +516,12 @@ def test_organization_workflow_integration(authenticated_client, db_session, org
     # Step 4: List organizations
     list_response = authenticated_client.get("/api/v1/organizations/")
     assert list_response.status_code == 200
-    assert len(list_response.json()) == 1
-    assert list_response.json()[0]["id"] == org_id
+    list_data = list_response.json()
+    assert "data" in list_data
+    assert "meta" in list_data
+    assert len(list_data["data"]) == 1
+    assert list_data["meta"]["total"] == 1
+    assert list_data["data"][0]["id"] == org_id
     
     # Verify final state in database
     verify_organization_in_db(db_session, org_id, {

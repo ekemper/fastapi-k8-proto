@@ -26,7 +26,7 @@ def mock_instantly_service():
 
 @pytest.fixture
 def campaign_payload(authenticated_client, organization):
-    """Return a valid payload for creating a campaign via the API."""
+    """Create a campaign for lead tests."""
     payload = {
         "name": "Test Campaign for Leads",
         "description": "Campaign for lead tests",
@@ -37,7 +37,11 @@ def campaign_payload(authenticated_client, organization):
     }
     response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     assert response.status_code == 201
-    return response.json()
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    return response_data["data"]
 
 @pytest.fixture
 def lead_payload(campaign_payload):
@@ -78,7 +82,11 @@ def existing_lead(db_session, campaign_payload):
 def test_create_lead_success(authenticated_client, db_session, lead_payload):
     response = authenticated_client.post("/api/v1/leads/", json=lead_payload)
     assert response.status_code == 201
-    data = response.json()
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    data = response_data["data"]
     for key in lead_payload:
         if key in data:
             assert data[key] == lead_payload[key]
@@ -110,7 +118,11 @@ def test_create_lead_duplicate_email_same_campaign(authenticated_client, db_sess
 def test_list_leads_empty(authenticated_client, db_session):
     response = authenticated_client.get("/api/v1/leads/")
     assert response.status_code == 200
-    assert response.json() == []
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    assert response_data["data"]["leads"] == []
     assert count_leads_in_db(db_session) == 0
 
 def test_list_leads_multiple(authenticated_client, db_session, lead_payload):
@@ -123,7 +135,11 @@ def test_list_leads_multiple(authenticated_client, db_session, lead_payload):
         emails.append(payload["email"])
     response = authenticated_client.get("/api/v1/leads/")
     assert response.status_code == 200
-    data = response.json()
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    data = response_data["data"]["leads"]
     assert len(data) == 3
     db_count = count_leads_in_db(db_session)
     assert db_count == 3
@@ -143,32 +159,60 @@ def test_list_leads_pagination(authenticated_client, db_session, lead_payload):
 
 def test_list_leads_filter_by_campaign(authenticated_client, db_session, lead_payload, campaign_payload):
     # Create a second campaign
-    second_campaign_payload = campaign_payload.copy()
-    second_campaign_payload["name"] = "Second Campaign"
+    second_campaign_payload = {
+        "name": "Second Campaign",
+        "description": "Second Campaign for leads",
+        "fileName": "second_leads.csv",
+        "totalRecords": 10,
+        "url": "https://app.apollo.io/#/lead-test-second",
+        "organization_id": campaign_payload["organization_id"]
+    }
     response = authenticated_client.post("/api/v1/campaigns/", json=second_campaign_payload)
     assert response.status_code == 201
-    second_campaign = response.json()
+    second_campaign_response = response.json()
+    assert "status" in second_campaign_response
+    assert "data" in second_campaign_response
+    assert second_campaign_response["status"] == "success"
+    second_campaign = second_campaign_response["data"]
+    
     # Add leads to both campaigns
     payload1 = lead_payload.copy()
     payload2 = lead_payload.copy()
     payload2["campaign_id"] = second_campaign["id"]
     payload2["email"] = "second@campaign.com"
+    
     authenticated_client.post("/api/v1/leads/", json=payload1)
     authenticated_client.post("/api/v1/leads/", json=payload2)
+    
     # Filter by first campaign
     resp1 = authenticated_client.get(f"/api/v1/leads/?campaign_id={campaign_payload['id']}")
     assert resp1.status_code == 200
-    assert all(lead["campaign_id"] == campaign_payload["id"] for lead in resp1.json())
+    resp1_data = resp1.json()
+    assert "status" in resp1_data
+    assert "data" in resp1_data
+    assert resp1_data["status"] == "success"
+    leads1 = resp1_data["data"]["leads"]
+    assert all(lead["campaign_id"] == campaign_payload["id"] for lead in leads1)
+    
     # Filter by second campaign
     resp2 = authenticated_client.get(f"/api/v1/leads/?campaign_id={second_campaign['id']}")
     assert resp2.status_code == 200
-    assert all(lead["campaign_id"] == second_campaign["id"] for lead in resp2.json())
+    resp2_data = resp2.json()
+    assert "status" in resp2_data
+    assert "data" in resp2_data
+    assert resp2_data["status"] == "success"
+    leads2 = resp2_data["data"]["leads"]
+    assert all(lead["campaign_id"] == second_campaign["id"] for lead in leads2)
 
 # ------------------- Lead Retrieval Tests -------------------
 def test_get_lead_success(authenticated_client, db_session, existing_lead):
     response = authenticated_client.get(f"/api/v1/leads/{existing_lead.id}")
     assert response.status_code == 200
-    data = response.json()
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    data = response_data["data"]
     assert data["id"] == existing_lead.id
     assert data["email"] == existing_lead.email
     db_lead = verify_lead_in_db(db_session, existing_lead.id)
@@ -189,7 +233,11 @@ def test_update_lead_success(authenticated_client, db_session, existing_lead):
     update_data = {"first_name": "Updated", "company": "NewCo"}
     response = authenticated_client.put(f"/api/v1/leads/{existing_lead.id}", json=update_data)
     assert response.status_code == 200
-    data = response.json()
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    data = response_data["data"]
     assert data["first_name"] == "Updated"
     assert data["company"] == "NewCo"
     verify_lead_in_db(db_session, existing_lead.id, {"first_name": "Updated", "company": "NewCo"})
@@ -198,7 +246,11 @@ def test_update_lead_partial(authenticated_client, db_session, existing_lead):
     update_data = {"title": "Director"}
     response = authenticated_client.put(f"/api/v1/leads/{existing_lead.id}", json=update_data)
     assert response.status_code == 200
-    data = response.json()
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    data = response_data["data"]
     assert data["title"] == "Director"
     verify_lead_in_db(db_session, existing_lead.id, {"title": "Director"})
 
@@ -224,7 +276,13 @@ def test_lead_campaign_relationship(authenticated_client, db_session, campaign_p
     }
     response = authenticated_client.post("/api/v1/leads/", json=payload)
     assert response.status_code == 201
-    lead_id = response.json()["id"]
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    lead_data = response_data["data"]
+    lead_id = lead_data["id"]
+    
     # Retrieve campaign from DB and check leads
     campaign = db_session.query(Campaign).filter(Campaign.id == campaign_payload["id"]).first()
     assert any(lead.id == lead_id for lead in campaign.leads)

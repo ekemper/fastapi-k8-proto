@@ -3,22 +3,26 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15-alpine
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: fastapi_k8_proto
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
+    env_file:
+      - .env
     ports:
       - "6379:6379"
     healthcheck:
@@ -29,23 +33,25 @@ services:
 
   api:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.api
+      context: .
+      dockerfile: Dockerfile.api
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     environment:
-      - POSTGRES_SERVER=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=fastapi_k8_proto
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - POSTGRES_SERVER=${POSTGRES_SERVER}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
     volumes:
-      - ../logs:/app/logs
-      - ../app:/app/app
-      - ../alembic:/app/alembic
-      - ../alembic.ini:/app/alembic.ini
-      - ../tests:/app/tests
+      - ./logs:/app/logs
+      - ./app:/app/app
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./tests:/app/tests
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,18 +63,20 @@ services:
 
   worker:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.worker
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file:
+      - .env
     environment:
-      - POSTGRES_SERVER=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=fastapi_k8_proto
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - POSTGRES_SERVER=${POSTGRES_SERVER}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
     volumes:
-      - ../logs:/app/logs
-      - ../app:/app/app
+      - ./logs:/app/logs
+      - ./app:/app/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,28 +87,38 @@ services:
 
   flower:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.worker
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file:
+      - .env
     ports:
       - "5555:5555"
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - POSTGRES_SERVER=${POSTGRES_SERVER}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
       - FLOWER_UNAUTHENTICATED_API=1
     volumes:
-      - ../logs:/app/logs
+      - ./logs:/app/logs
     depends_on:
       - redis
+      - postgres
     command: celery -A app.workers.celery_app flower --port=5555
+
   frontend:
       build:
         context: ./frontend
         dockerfile: Dockerfile
         target: development
+      env_file:
+        - .env
       ports:
         - "5173:5173"
       depends_on:
-        - backend
+        - api
       restart: unless-stopped
       healthcheck:
         test: ["CMD", "curl", "-f", "http://localhost:5173"]
@@ -113,6 +131,7 @@ services:
         - /app/node_modules
       environment:
         - NODE_ENV=development
+        - VITE_API_URL=http://localhost:8000
       command: ["npm", "run", "dev", "--", "--host", "--port", "5173"]
       
 volumes:

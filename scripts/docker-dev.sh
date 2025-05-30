@@ -16,50 +16,50 @@ fi
 case "$1" in
   start)
     echo "Starting Docker services..."
-    cd docker && $DC up -d
+    $DC up -d
     echo "Services started. API: http://localhost:8000, Flower: http://localhost:5555"
     ;;
   
   stop)
     echo "Stopping Docker services..."
-    cd docker && $DC down
+    $DC down
     ;;
   
   restart)
     echo "Restarting Docker services..."
-    cd docker && $DC restart
+    $DC restart
     ;;
   
   logs)
-    cd docker && $DC logs -f ${2:-}
+    $DC logs -f ${2:-}
     ;;
   
   build)
     echo "Building Docker images..."
-    cd docker && $DC build ${2:-}
+    $DC build ${2:-}
     ;;
   
   shell)
     service=${2:-api}
-    cd docker && $DC exec $service /bin/bash
+    $DC exec $service /bin/bash
     ;;
   
   db-shell)
-    cd docker && $DC exec postgres psql -U postgres -d fastapi_k8_proto
+    $DC exec postgres psql -U postgres -d fastapi_k8_proto
     ;;
   
   redis-cli)
-    cd docker && $DC exec redis redis-cli
+    $DC exec redis redis-cli
     ;;
   
   test)
     echo "Running tests in Docker..."
-    cd docker && $DC run --rm api pytest tests/ -v
+    $DC run --rm api pytest tests/ -v
     ;;
   
   clean)
     echo "Cleaning up Docker resources..."
-    cd docker && $DC down -v
+    $DC down -v
     docker system prune -f
     ;;
   

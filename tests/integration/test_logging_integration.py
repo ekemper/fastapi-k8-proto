@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.core.logger import get_logger
-from app.core.config import get_settings
+from app.core.config import settings
 
 
 class TestAPIServiceLogging:
@@ -308,7 +308,6 @@ class TestLogFileCreationAndRotation:
     
     def test_log_file_creation_configuration(self):
         """Test that log file configuration is properly set up."""
-        settings = get_settings()
         
         # Verify configuration is accessible
         assert hasattr(settings, 'LOG_DIR')
@@ -322,7 +321,6 @@ class TestLogFileCreationAndRotation:
     
     def test_log_directory_path_resolution(self):
         """Test that log directory path is properly resolved."""
-        settings = get_settings()
         log_dir = Path(settings.LOG_DIR)
         
         # Directory should be resolvable

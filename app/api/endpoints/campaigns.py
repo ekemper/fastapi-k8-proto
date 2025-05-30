@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+import math
 
 from app.core.database import get_db
 from app.models.campaign import Campaign
@@ -11,32 +12,87 @@ from app.schemas.campaign import (
     CampaignStart
 )
 from app.services.campaign import CampaignService
+from pydantic import BaseModel
+
+# Custom response models to match frontend expectations
+class CampaignListData(BaseModel):
+    campaigns: List[CampaignResponse]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+class CampaignsListResponse(BaseModel):
+    status: str
+    data: CampaignListData
+
+class CampaignDetailResponse(BaseModel):
+    status: str
+    data: CampaignResponse
+
+class CampaignCreateResponse(BaseModel):
+    status: str
+    data: CampaignResponse
+
+class CampaignUpdateResponse(BaseModel):
+    status: str
+    data: CampaignResponse
+
+class CampaignDeleteResponse(BaseModel):
+    status: str
+    message: str
+
+class CampaignStartResponse(BaseModel):
+    status: str
+    data: CampaignResponse
 
 router = APIRouter()
 
-@router.get("/", response_model=List[CampaignResponse])
+@router.get("/", response_model=CampaignsListResponse)
 async def list_campaigns(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(10, ge=1, le=100, description="Items per page"),
     organization_id: Optional[str] = Query(None, description="Filter by organization ID"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by campaign status"),
     db: Session = Depends(get_db)
 ):
     """List all campaigns with optional pagination and organization filtering"""
     campaign_service = CampaignService()
+    
+    # Get all campaigns data first
     campaigns_data = await campaign_service.get_campaigns(db, organization_id=organization_id)
     
     # Convert to response models
-    campaigns = []
+    all_campaigns = []
     for campaign_dict in campaigns_data:
         # Get the campaign object to create proper response
         campaign = db.query(Campaign).filter(Campaign.id == campaign_dict['id']).first()
         if campaign:
-            campaigns.append(CampaignResponse.from_campaign(campaign))
+            campaign_response = CampaignResponse.from_campaign(campaign)
+            # Apply status filter if provided
+            if not status_filter or campaign_response.status == status_filter:
+                all_campaigns.append(campaign_response)
+    
+    # Calculate pagination
+    total_campaigns = len(all_campaigns)
+    total_pages = math.ceil(total_campaigns / per_page) if total_campaigns > 0 else 1
+    skip = (page - 1) * per_page
     
     # Apply pagination
-    return campaigns[skip:skip + limit]
+    paginated_campaigns = all_campaigns[skip:skip + per_page]
+    
+    # Create response data
+    data = CampaignListData(
+        campaigns=paginated_campaigns,
+        total=total_campaigns,
+        page=page,
+        per_page=per_page,
+        pages=total_pages
+    )
+    
+    return CampaignsListResponse(status="success", data=data)
 
-@router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=CampaignCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_campaign(
     campaign_in: CampaignCreate,
     db: Session = Depends(get_db)
@@ -53,9 +109,12 @@ async def create_campaign(
             detail="Campaign created but could not be retrieved"
         )
     
-    return CampaignResponse.from_campaign(campaign)
+    return CampaignCreateResponse(
+        status="success",
+        data=CampaignResponse.from_campaign(campaign)
+    )
 
-@router.get("/{campaign_id}", response_model=CampaignResponse)
+@router.get("/{campaign_id}", response_model=CampaignDetailResponse)
 async def get_campaign(
     campaign_id: str,
     db: Session = Depends(get_db)
@@ -72,9 +131,12 @@ async def get_campaign(
             detail=f"Campaign {campaign_id} not found"
         )
     
-    return CampaignResponse.from_campaign(campaign)
+    return CampaignDetailResponse(
+        status="success",
+        data=CampaignResponse.from_campaign(campaign)
+    )
 
-@router.patch("/{campaign_id}", response_model=CampaignResponse)
+@router.patch("/{campaign_id}", response_model=CampaignUpdateResponse)
 async def update_campaign(
     campaign_id: str,
     campaign_update: CampaignUpdate,
@@ -92,9 +154,12 @@ async def update_campaign(
             detail=f"Campaign {campaign_id} not found"
         )
     
-    return CampaignResponse.from_campaign(campaign)
+    return CampaignUpdateResponse(
+        status="success",
+        data=CampaignResponse.from_campaign(campaign)
+    )
 
-@router.post("/{campaign_id}/start", response_model=CampaignResponse)
+@router.post("/{campaign_id}/start", response_model=CampaignStartResponse)
 async def start_campaign(
     campaign_id: str,
     start_data: CampaignStart = CampaignStart(),
@@ -112,7 +177,10 @@ async def start_campaign(
             detail=f"Campaign {campaign_id} not found"
         )
     
-    return CampaignResponse.from_campaign(campaign)
+    return CampaignStartResponse(
+        status="success",
+        data=CampaignResponse.from_campaign(campaign)
+    )
 
 @router.get("/{campaign_id}/details")
 async def get_campaign_details(

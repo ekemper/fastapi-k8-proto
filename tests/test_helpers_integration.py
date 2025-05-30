@@ -77,7 +77,14 @@ def test_campaign_api_with_database_verification(db_helpers, organization, authe
     response = authenticated_client.post("/api/v1/campaigns/", json=campaign_data)
     assert response.status_code == 201
     
-    api_campaign = response.json()
+    response_data = response.json()
+    
+    # Check structured response format
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    
+    api_campaign = response_data["data"]
     campaign_id = api_campaign["id"]
     
     # Verify campaign was created in database with correct values
@@ -115,7 +122,12 @@ def test_campaign_api_with_database_verification(db_helpers, organization, authe
     response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}")
     assert response.status_code == 200
     
-    api_campaign = response.json()
+    response_data = response.json()
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    
+    api_campaign = response_data["data"]
     assert api_campaign["name"] == "Updated API Campaign"
     assert api_campaign["description"] == "Updated via API"
     
@@ -179,7 +191,13 @@ def test_multiple_campaigns_database_state(db_helpers, organization, authenticat
         
         response = authenticated_client.post("/api/v1/campaigns/", json=campaign_data)
         assert response.status_code == 201
-        campaigns.append(response.json())
+        
+        response_data = response.json()
+        assert "status" in response_data
+        assert "data" in response_data
+        assert response_data["status"] == "success"
+        
+        campaigns.append(response_data["data"])
     
     # Verify count
     assert db_helpers.count_campaigns_in_db() == 3

@@ -1,6 +1,4 @@
-TODO: pull logger logic from old app
 
-TODO: add a new endpoint to the api to get the status of a campaign
 
 TODO: test  front end migration
 
@@ -14,3 +12,9 @@ TODO: load test mulitple campaigns with multiple workers
 TODO: migrate / merge prod config , prod ready checklist
 
 TODO: Deploy and test on heroku
+
+TODO: design archetecture for simple client dash that can be shared
+
+TODO: implement MVP client dash
+
+TODO: find docs and figre out how to always include them in the context

@@ -1,6 +1,7 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+import math
 
 from app.core.database import get_db
 from app.models.organization import Organization
@@ -11,18 +12,33 @@ from app.schemas.organization import (
     OrganizationUpdate
 )
 from app.schemas.campaign import CampaignResponse
+from app.schemas.common import PaginatedResponse, PaginationMeta
 from app.services.organization import OrganizationService
 from app.services.campaign import CampaignService
 
 router = APIRouter()
 
-@router.get("/", response_model=List[OrganizationResponse])
+@router.get("/", response_model=PaginatedResponse[OrganizationResponse])
 async def list_organizations(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(10, ge=1, le=100, description="Items per page"),
+    search: str = Query(None, description="Search term"),
     db: Session = Depends(get_db)
 ):
-    """Get all organizations"""
+    """Get all organizations with pagination"""
     organization_service = OrganizationService()
-    organizations_data = await organization_service.get_organizations(db)
+    
+    # Get total count first
+    total_organizations = await organization_service.count_organizations(db, search=search)
+    
+    # Calculate pagination
+    total_pages = math.ceil(total_organizations / limit) if total_organizations > 0 else 1
+    skip = (page - 1) * limit
+    
+    # Get organizations data with pagination
+    organizations_data = await organization_service.get_organizations(
+        db, skip=skip, limit=limit, search=search
+    )
     
     # Convert to response models with campaign counts
     organizations = []
@@ -32,7 +48,15 @@ async def list_organizations(
             campaign_count = organization_service.get_campaign_count(org.id, db)
             organizations.append(OrganizationResponse.from_organization(org, campaign_count))
     
-    return organizations
+    # Create pagination metadata
+    meta = PaginationMeta(
+        page=page,
+        limit=limit,
+        total=total_organizations,
+        pages=total_pages
+    )
+    
+    return PaginatedResponse(data=organizations, meta=meta)
 
 @router.post("/", response_model=OrganizationResponse, status_code=status.HTTP_201_CREATED)
 async def create_organization(

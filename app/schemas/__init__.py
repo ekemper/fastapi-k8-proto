@@ -22,6 +22,7 @@ from app.schemas.auth import (
     SignupResponse, 
     LoginResponse
 )
+from app.schemas.common import PaginatedResponse, PaginationMeta
 
 __all__ = [
     "JobCreate", 
@@ -45,5 +46,7 @@ __all__ = [
     "TokenResponse",
     "UserResponse",
     "SignupResponse",
-    "LoginResponse"
+    "LoginResponse",
+    "PaginatedResponse",
+    "PaginationMeta"
 ]

@@ -92,7 +92,13 @@ def test_api_client_fixture(api_client):
     # Should be able to make requests
     response = api_client.get("/api/v1/campaigns/")
     assert response.status_code == 200
-    assert response.json() == []  # Should be empty list
+    
+    response_data = response.json()
+    # Check structured response format
+    assert "status" in response_data
+    assert "data" in response_data
+    assert response_data["status"] == "success"
+    assert response_data["data"]["campaigns"] == []  # Should be empty list
 
 
 # ---------------------------------------------------------------------------

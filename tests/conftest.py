@@ -10,6 +10,11 @@ from app.core.database import Base, get_db
 from app.core.config import settings
 from app.models.organization import Organization
 from app.models.user import User
+from app.models.campaign import Campaign
+from app.models.campaign_status import CampaignStatus
+
+# Import all campaign fixtures
+from tests.fixtures.campaign_fixtures import *
 
 # Override settings for testing
 settings.POSTGRES_SERVER = os.getenv("POSTGRES_SERVER", "localhost")

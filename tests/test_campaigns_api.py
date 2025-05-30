@@ -127,7 +127,11 @@ def test_create_campaign_success(authenticated_client, db_session, authenticated
     
     # Verify API response
     assert response.status_code == 201
-    data = response.json()
+    response_data = response.json()
+    assert response_data["status"] == "success"
+    assert "data" in response_data
+    data = response_data["data"]
+    
     assert data["name"] == authenticated_campaign_payload["name"]
     assert data["status"] == CampaignStatus.CREATED.value
     assert data["fileName"] == authenticated_campaign_payload["fileName"]
@@ -192,7 +196,8 @@ def test_create_campaign_special_characters(authenticated_client, db_session, au
     response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     
     assert response.status_code == 201
-    data = response.json()
+    response_data = response.json()
+    data = response_data["data"]
     assert data["name"] == payload["name"]
     
     # Verify database record
@@ -208,7 +213,8 @@ def test_create_campaign_xss_prevention(authenticated_client, db_session, authen
     response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     
     assert response.status_code == 201
-    data = response.json()
+    response_data = response.json()
+    data = response_data["data"]
     assert data["name"] == payload["name"]
     assert data["description"] == payload["description"]
     
@@ -225,7 +231,8 @@ def test_create_campaign_long_description(authenticated_client, db_session, auth
     response = authenticated_client.post("/api/v1/campaigns/", json=payload)
     
     assert response.status_code == 201
-    data = response.json()
+    response_data = response.json()
+    data = response_data["data"]
     assert len(data["description"]) == 10000
     
     # Verify database record
@@ -240,9 +247,13 @@ def test_list_campaigns_empty(authenticated_client, db_session):
     response = authenticated_client.get("/api/v1/campaigns/")
     
     assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
-    assert len(data) == 0
+    response_data = response.json()
+    assert response_data["status"] == "success"
+    assert "data" in response_data
+    data = response_data["data"]
+    assert isinstance(data["campaigns"], list)
+    assert len(data["campaigns"]) == 0
+    assert data["total"] == 0
     
     # Verify database is empty
     verify_no_campaign_in_db(db_session)
@@ -256,22 +267,21 @@ def test_list_campaigns_multiple(authenticated_client, db_session, authenticated
         payload = {**authenticated_campaign_payload, "name": f"Campaign {i}"}
         response = authenticated_client.post("/api/v1/campaigns/", json=payload)
         assert response.status_code == 201
-        created_campaigns.append(response.json())
+        created_campaigns.append(response.json()["data"])
     
     # List campaigns
     response = authenticated_client.get("/api/v1/campaigns/")
     assert response.status_code == 200
-    data = response.json()
-    assert len(data) == 3
+    response_data = response.json()
+    assert response_data["status"] == "success"
+    data = response_data["data"]
+    assert len(data["campaigns"]) == 3
+    assert data["total"] == 3
     
     # Verify all campaigns are returned
-    returned_ids = {campaign["id"] for campaign in data}
+    returned_ids = {campaign["id"] for campaign in data["campaigns"]}
     expected_ids = {campaign["id"] for campaign in created_campaigns}
     assert returned_ids == expected_ids
-    
-    # Verify database has all campaigns
-    db_count = db_session.query(Campaign).count()
-    assert db_count == 3
 
 def test_list_campaigns_pagination(authenticated_client, db_session, authenticated_campaign_payload):
     """Test pagination parameters work correctly."""
@@ -281,11 +291,17 @@ def test_list_campaigns_pagination(authenticated_client, db_session, authenticat
         response = authenticated_client.post("/api/v1/campaigns/", json=payload)
         assert response.status_code == 201
     
-    # Test pagination
-    response = authenticated_client.get("/api/v1/campaigns/?skip=2&limit=2")
+    # Test pagination (page 2, 2 per page)
+    response = authenticated_client.get("/api/v1/campaigns/?page=2&per_page=2")
     assert response.status_code == 200
-    data = response.json()
-    assert len(data) == 2  # Should return 2 campaigns (limit=2)
+    response_data = response.json()
+    assert response_data["status"] == "success"
+    data = response_data["data"]
+    assert len(data["campaigns"]) == 2  # Should return 2 campaigns (per_page=2)
+    assert data["total"] == 5  # Total should be 5
+    assert data["page"] == 2  # Current page should be 2
+    assert data["per_page"] == 2
+    assert data["pages"] == 3  # Total pages should be 3 (5 campaigns / 2 per page)
     
     # Verify database still has all 5 campaigns
     db_count = db_session.query(Campaign).count()
@@ -299,25 +315,28 @@ def test_list_campaigns_order(authenticated_client, db_session, authenticated_ca
         payload = {**authenticated_campaign_payload, "name": f"Campaign {i}"}
         response = authenticated_client.post("/api/v1/campaigns/", json=payload)
         assert response.status_code == 201
-        created_campaigns.append(response.json())
+        created_campaigns.append(response.json()["data"])
         # Add small delay to ensure different timestamps
         time.sleep(0.1)
     
     # List campaigns
     response = authenticated_client.get("/api/v1/campaigns/")
     assert response.status_code == 200
-    data = response.json()
+    response_data = response.json()
+    assert response_data["status"] == "success"
+    data = response_data["data"]
     
     # Verify we got all campaigns
-    assert len(data) == 3
+    assert len(data["campaigns"]) == 3
+    assert data["total"] == 3
     
     # Verify all created campaigns are in the response
-    returned_names = {campaign["name"] for campaign in data}
+    returned_names = {campaign["name"] for campaign in data["campaigns"]}
     expected_names = {f"Campaign {i}" for i in range(3)}
     assert returned_names == expected_names
     
     # Verify campaigns have valid timestamps
-    for campaign in data:
+    for campaign in data["campaigns"]:
         assert "created_at" in campaign
         assert campaign["created_at"] is not None
 
@@ -330,13 +349,17 @@ def test_get_campaign_success(authenticated_client, db_session, authenticated_ca
     # Create campaign
     create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
-    created_campaign = create_response.json()
-    campaign_id = created_campaign["id"]
+    campaign_id = create_response.json()["data"]["id"]
     
     # Retrieve campaign
     response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}")
     assert response.status_code == 200
-    data = response.json()
+    response_data = response.json()
+    
+    # Verify response structure
+    assert response_data["status"] == "success"
+    assert "data" in response_data
+    data = response_data["data"]
     
     # Verify returned data matches database record exactly
     assert data["id"] == campaign_id
@@ -374,7 +397,7 @@ def test_update_campaign_success(authenticated_client, db_session, authenticated
     # Create campaign
     create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
-    campaign_id = create_response.json()["id"]
+    campaign_id = create_response.json()["data"]["id"]
     
     # Update campaign
     update_data = {
@@ -384,7 +407,8 @@ def test_update_campaign_success(authenticated_client, db_session, authenticated
     response = authenticated_client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
     
     assert response.status_code == 200
-    data = response.json()
+    response_data = response.json()
+    data = response_data["data"]
     assert data["name"] == update_data["name"]
     assert data["description"] == update_data["description"]
     
@@ -399,15 +423,16 @@ def test_update_campaign_partial(authenticated_client, db_session, authenticated
     # Create campaign
     create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
-    campaign_id = create_response.json()["id"]
-    original_name = create_response.json()["name"]
+    campaign_id = create_response.json()["data"]["id"]
+    original_name = create_response.json()["data"]["name"]
     
     # Update only description
     update_data = {"description": "Only description updated"}
     response = authenticated_client.patch(f"/api/v1/campaigns/{campaign_id}", json=update_data)
     
     assert response.status_code == 200
-    data = response.json()
+    response_data = response.json()
+    data = response_data["data"]
     assert data["name"] == original_name  # Should remain unchanged
     assert data["description"] == update_data["description"]
     
@@ -422,7 +447,7 @@ def test_update_campaign_validation_error(authenticated_client, db_session, auth
     # Create campaign
     create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
-    campaign_id = create_response.json()["id"]
+    campaign_id = create_response.json()["data"]["id"]
     
     # Try to update with invalid data
     invalid_update = {"totalRecords": -1}  # Negative value should fail
@@ -452,7 +477,7 @@ def test_start_campaign_success(authenticated_client, db_session, authenticated_
     # Create campaign
     create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
-    campaign_id = create_response.json()["id"]
+    campaign_id = create_response.json()["data"]["id"]
     
     # Start campaign
     response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
@@ -460,7 +485,8 @@ def test_start_campaign_success(authenticated_client, db_session, authenticated_
     # Note: This might fail due to missing Apollo/Instantly services
     # but we test the expected behavior when services are available
     if response.status_code == 200:
-        data = response.json()
+        response_data = response.json()
+        data = response_data["data"]
         assert data["status"] == CampaignStatus.RUNNING.value
         
         # Verify database status update is persisted
@@ -479,7 +505,7 @@ def test_start_campaign_duplicate(authenticated_client, db_session, authenticate
     # Create campaign
     create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
-    campaign_id = create_response.json()["id"]
+    campaign_id = create_response.json()["data"]["id"]
     
     # Manually update campaign status to RUNNING in database
     db_campaign = db_session.query(Campaign).filter(Campaign.id == campaign_id).first()
@@ -508,7 +534,7 @@ def test_get_campaign_details_success(authenticated_client, db_session, authenti
     # Create campaign
     create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
-    campaign_id = create_response.json()["id"]
+    campaign_id = create_response.json()["data"]["id"]
     
     # Get campaign details
     response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/details")
@@ -554,7 +580,7 @@ def test_cleanup_old_jobs_success(authenticated_client, db_session, authenticate
     # Create campaign
     create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
-    campaign_id = create_response.json()["id"]
+    campaign_id = create_response.json()["data"]["id"]
     
     # Create old jobs (manually for testing)
     old_date = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=40)
@@ -623,7 +649,7 @@ def test_concurrent_operations_same_campaign(authenticated_client, db_session, a
     # Create campaign
     create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert create_response.status_code == 201
-    campaign_id = create_response.json()["id"]
+    campaign_id = create_response.json()["data"]["id"]
     
     # Simulate concurrent updates (in real scenario these would be parallel)
     update1 = {"name": "Update 1"}
@@ -650,7 +676,7 @@ def test_campaign_workflow_integration(authenticated_client, db_session, authent
     response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
     assert response.status_code == 201
     campaign = response.json()
-    campaign_id = campaign["id"]
+    campaign_id = campaign["data"]["id"]
     
     # Verify creation in database
     verify_campaign_in_db(db_session, campaign_id, {
@@ -685,5 +711,6 @@ def test_campaign_workflow_integration(authenticated_client, db_session, authent
     # 5. List all campaigns (should include our campaign)
     list_response = authenticated_client.get("/api/v1/campaigns/")
     assert list_response.status_code == 200
-    campaigns = list_response.json()
+    list_data = list_response.json()
+    campaigns = list_data["data"]["campaigns"]
     assert any(c["id"] == campaign_id for c in campaigns) 

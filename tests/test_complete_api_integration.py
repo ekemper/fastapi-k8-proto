@@ -37,7 +37,13 @@ def test_complete_user_workflow(client, db_session):
         }
     )
     assert org_response.status_code == 201
-    org_id = org_response.json()["id"]
+    org_response_data = org_response.json()
+    
+    # Check if organization endpoint uses structured response
+    if "data" in org_response_data:
+        org_id = org_response_data["data"]["id"]
+    else:
+        org_id = org_response_data["id"]
     
     # 5. User creates campaign
     campaign_response = client.post("/api/v1/campaigns/",
@@ -52,12 +58,26 @@ def test_complete_user_workflow(client, db_session):
         }
     )
     assert campaign_response.status_code == 201
-    campaign_id = campaign_response.json()["id"]
+    campaign_response_data = campaign_response.json()
+    
+    # Check structured response format
+    assert "status" in campaign_response_data
+    assert "data" in campaign_response_data
+    assert campaign_response_data["status"] == "success"
+    
+    campaign_id = campaign_response_data["data"]["id"]
     
     # 6. User lists campaigns (should include our campaign)
     campaigns_response = client.get("/api/v1/campaigns/", headers=headers)
     assert campaigns_response.status_code == 200
-    campaigns = campaigns_response.json()
+    campaigns_response_data = campaigns_response.json()
+    
+    # Check structured response format
+    assert "status" in campaigns_response_data
+    assert "data" in campaigns_response_data
+    assert campaigns_response_data["status"] == "success"
+    
+    campaigns = campaigns_response_data["data"]["campaigns"]
     assert len(campaigns) == 1
     assert campaigns[0]["id"] == campaign_id
     
