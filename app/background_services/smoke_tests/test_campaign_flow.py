@@ -87,7 +87,7 @@ def create_organization(token):
     return org_id
 
 def create_campaign(token, organization_id=None):
-    from app.background_services.mock_apify_client import MOCK_LEADS_DATA
+    from app.background_services.smoke_tests.mock_apify_client import MOCK_LEADS_DATA
     campaign_data = {
         "name": "Mock Test Campaign",
         "description": "A campaign for testing the Apify mock integration.",
@@ -124,7 +124,7 @@ def start_campaign(token, campaign_id):
 def validate_enrichment(leads, token):
     print(f"[Validation] Starting enrichment validation for {len(leads)} leads...")
     headers = {"Authorization": f"Bearer {token}"}
-    from app.background_services.mock_apify_client import MOCK_LEADS_DATA
+    from app.background_services.smoke_tests.mock_apify_client import MOCK_LEADS_DATA
     
     validated_count = 0
     for i, lead in enumerate(leads, 1):
@@ -284,7 +284,7 @@ def cleanup_test_data():
         print(f"[Cleanup] Could not connect to database for cleanup: {e}")
 
 def main():
-    from app.background_services.mock_apify_client import MOCK_LEADS_DATA
+    from app.background_services.smoke_tests.mock_apify_client import MOCK_LEADS_DATA
     
     print("\n" + "="*60)
     print("🚀 STARTING CAMPAIGN FLOW TEST")

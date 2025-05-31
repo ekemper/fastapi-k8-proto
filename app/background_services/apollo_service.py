@@ -16,7 +16,7 @@ from app.schemas.lead import LeadCreate
 from app.core.database import get_db
 from app.core.logger import get_logger
 from app.core.api_integration_rate_limiter import ApiIntegrationRateLimiter
-from app.background_services.mock_apify_client import MockApifyClient
+from app.background_services.smoke_tests.mock_apify_client import MockApifyClient
 
 logger = get_logger(__name__)
 

@@ -58,6 +58,13 @@ class EmailVerifierService:
         Returns:
             Dict containing verification results or error information
         """
+        # Validate email parameter
+        if not email or not isinstance(email, str):
+            return {
+                'status': 'error',
+                'error': f'Invalid email parameter: {email}'
+            }
+        
         # Check rate limiting if enabled
         # if self.rate_limiter:
         #     try:
@@ -106,7 +113,7 @@ class EmailVerifierService:
                 'quality_score': 'good',
                 'is_disposable': False,
                 'is_role_account': False,
-                'is_free': email.split('@')[1] in ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com'] if '@' in email else False,
+                'is_free': '@' in email and email.split('@')[1] in ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com'],
                 'is_mx_found': True,
                 'is_smtp_valid': True,
                 'is_catch_all': False,

@@ -84,7 +84,7 @@ services:
       redis:
         condition: service_healthy
     deploy:
-      replicas: 2
+      replicas: 8
 
   flower:
     build:

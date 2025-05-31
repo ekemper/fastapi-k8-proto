@@ -1,18 +1,39 @@
 
+TODO : re implement the logic that prevents a lead being created with an email that already belongs to an exiting lead
 
-TODO: create test flow for starting campaign and fetching leads
-    * use the old workflow test as a reference, and utilize the new test: "test complete api integration"
+TODO: figure out millionverifier or find another service
 
-TODO: create test flow for entriching leads after fetching and saving leads 
+TODO: if an errror is recieved from a third party api call that involves rate limiting or account billing limits or token limits we should have a slack note
 
-TODO: load test mulitple campaigns with multiple workers
+
+
+TODO: event tracking - everything that happens to a campaign creates an event
+    * create 
+    * start
+    * n leads fetched
+    * ENRICH_LEAD job completed / failed
+    * api error recieved 
+
+
+
+TODO: campaign report based on event data, 
+    * create a cron job that executes every minute
+    * the cron job grabs all the events for the campaign and compiles a report (json) object
+    * the json object should contain the display data for the client dash
+    * actually for the first pass, the api endpoint should just do what the cron job would do. ( then we assess the performance )
+    * as the reports get more complex and require more data processing, we implement the cronjob  
+
+
 
 TODO: migrate / merge prod config , prod ready checklist
 
 TODO: Deploy and test on heroku
 
-TODO: design archetecture for simple client dash that can be shared
 
-TODO: implement MVP client dash
+TODO: create roles ( permissions later ) admin and client
 
-TODO: find docs and figre out how to always include them in the context
+TODO: relate users to orgs: users belong to orgs
+
+TODO: implement role based access control at the api surface: admins get everything - clients can only see the dash associated with their org
+
+TODO: implement MVP client dash: make a plan for the first few metrics visualizations, need design
