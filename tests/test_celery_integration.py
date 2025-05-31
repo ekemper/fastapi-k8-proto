@@ -38,7 +38,7 @@ def test_create_job_endpoint(authenticated_client, existing_campaign):
     # Create a job for the campaign
     job_payload = {
         "name": "Test Job",
-        "job_type": "GENERAL",
+        "job_type": "FETCH_LEADS",
         "campaign_id": campaign_data["id"]
     }
     
@@ -52,7 +52,7 @@ def test_create_job_endpoint(authenticated_client, existing_campaign):
     
     job_data = response_data["data"]
     assert job_data["name"] == "Test Job"
-    assert job_data["job_type"] == "GENERAL"
+    assert job_data["job_type"] == "FETCH_LEADS"
     assert job_data["campaign_id"] == campaign_data["id"]
     assert "id" in job_data
 
@@ -78,7 +78,7 @@ def test_job_status_endpoint(authenticated_client, existing_campaign):
     # Create a job
     job_payload = {
         "name": "Status Test Job",
-        "job_type": "GENERAL",
+        "job_type": "FETCH_LEADS",
         "campaign_id": campaign_data["id"]
     }
     
@@ -125,7 +125,7 @@ def test_list_jobs_endpoint(authenticated_client, existing_campaign):
     for i in range(3):
         job_payload = {
             "name": f"List Test Job {i}",
-            "job_type": "GENERAL",
+            "job_type": "FETCH_LEADS",
             "campaign_id": campaign_data["id"]
         }
         job_response = authenticated_client.post("/api/v1/jobs/", json=job_payload)
@@ -166,7 +166,7 @@ def test_cancel_job_endpoint(authenticated_client, existing_campaign):
     # Create a job to cancel
     job_payload = {
         "name": "Cancel Test Job",
-        "job_type": "GENERAL",
+        "job_type": "FETCH_LEADS",
         "campaign_id": campaign_data["id"]
     }
     

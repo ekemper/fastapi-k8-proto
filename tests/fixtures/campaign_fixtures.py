@@ -277,7 +277,7 @@ def campaign_with_jobs(test_db_session, organization):
         {
             "name": "Enrich Leads Job",
             "description": "Job to enrich lead data",
-            "job_type": JobType.ENRICH_LEADS,
+            "job_type": JobType.ENRICH_LEAD,
             "status": JobStatus.PROCESSING,
             "task_id": f"enrich-{uuid.uuid4()}",
             "result": None
@@ -285,7 +285,7 @@ def campaign_with_jobs(test_db_session, organization):
         {
             "name": "Verify Emails Job",
             "description": "Job to verify email addresses",
-            "job_type": JobType.VERIFY_EMAILS,
+            "job_type": JobType.ENRICH_LEAD,
             "status": JobStatus.PENDING,
             "task_id": f"verify-{uuid.uuid4()}",
             "result": None
@@ -293,7 +293,7 @@ def campaign_with_jobs(test_db_session, organization):
         {
             "name": "Failed Job",
             "description": "A job that failed during processing",
-            "job_type": JobType.GENERATE_EMAIL_COPY,
+            "job_type": JobType.ENRICH_LEAD,
             "status": JobStatus.FAILED,
             "task_id": f"failed-{uuid.uuid4()}",
             "error": "API rate limit exceeded",
@@ -357,7 +357,7 @@ def old_jobs_for_cleanup(test_db_session, organization):
         {
             "name": "Old Failed Job",
             "description": "Old failed job to be cleaned up",
-            "job_type": JobType.ENRICH_LEADS,
+            "job_type": JobType.ENRICH_LEAD,
             "status": JobStatus.FAILED,
             "task_id": f"old-failed-{uuid.uuid4()}",
             "error": "Old error message",

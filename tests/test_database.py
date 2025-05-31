@@ -10,7 +10,7 @@ def test_create_job(db_session):
     job = Job(
         name="Test Job",
         description="Test Description",
-        job_type=JobType.GENERAL,
+        job_type=JobType.FETCH_LEADS,
         status=JobStatus.PENDING,
         task_id="test-task-123"
     )

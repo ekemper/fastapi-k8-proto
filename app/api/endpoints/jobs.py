@@ -79,13 +79,16 @@ async def list_jobs(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(10, ge=1, le=100, description="Items per page"),
     status_filter: Optional[JobStatus] = Query(None, alias="status", description="Filter by job status"),
+    campaign_id: Optional[str] = Query(None, description="Filter by campaign ID"),
     db: Session = Depends(get_db)
 ):
-    """List all jobs with optional status filter and pagination"""
+    """List all jobs with optional status filter, campaign filter, and pagination"""
     # Build query
     query = db.query(Job)
     if status_filter:
         query = query.filter(Job.status == status_filter)
+    if campaign_id:
+        query = query.filter(Job.campaign_id == campaign_id)
     
     # Get total count
     total_jobs = query.count()

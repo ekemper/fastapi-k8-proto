@@ -79,6 +79,48 @@ class Settings(BaseSettings):
             return v
         return values.data.get("REDIS_URL", "")
 
+    # Rate Limiter Configuration
+    # MillionVerifier API Rate Limits
+    MILLIONVERIFIER_RATE_LIMIT_REQUESTS: int = 60
+    MILLIONVERIFIER_RATE_LIMIT_PERIOD: int = 60
+    
+    # Apollo API Rate Limits
+    APOLLO_RATE_LIMIT_REQUESTS: int = 30
+    APOLLO_RATE_LIMIT_PERIOD: int = 60
+    
+    # Instantly API Rate Limits
+    INSTANTLY_RATE_LIMIT_REQUESTS: int = 100
+    INSTANTLY_RATE_LIMIT_PERIOD: int = 60
+    
+    # OpenAI API Rate Limits
+    OPENAI_RATE_LIMIT_REQUESTS: int = 60
+    OPENAI_RATE_LIMIT_PERIOD: int = 60
+    
+    # Perplexity API Rate Limits
+    PERPLEXITY_RATE_LIMIT_REQUESTS: int = 50
+    PERPLEXITY_RATE_LIMIT_PERIOD: int = 60
+
+    @field_validator(
+        "MILLIONVERIFIER_RATE_LIMIT_REQUESTS", "MILLIONVERIFIER_RATE_LIMIT_PERIOD",
+        "APOLLO_RATE_LIMIT_REQUESTS", "APOLLO_RATE_LIMIT_PERIOD",
+        "INSTANTLY_RATE_LIMIT_REQUESTS", "INSTANTLY_RATE_LIMIT_PERIOD",
+        "OPENAI_RATE_LIMIT_REQUESTS", "OPENAI_RATE_LIMIT_PERIOD",
+        "PERPLEXITY_RATE_LIMIT_REQUESTS", "PERPLEXITY_RATE_LIMIT_PERIOD",
+        mode="before"
+    )
+    def validate_rate_limit_integers(cls, v):
+        """Validate rate limit configuration values as positive integers."""
+        if isinstance(v, str):
+            # Handle comments in env values (e.g., "60  # requests per minute")
+            value = v.split('#')[0].strip()
+            parsed = int(value)
+        else:
+            parsed = int(v)
+        
+        if parsed <= 0:
+            raise ValueError(f"Rate limit values must be positive integers, got: {parsed}")
+        return parsed
+
     # Logging Configuration
     LOG_DIR: str = "./logs"
     LOG_LEVEL: str = "INFO"
@@ -100,5 +142,42 @@ class Settings(BaseSettings):
         case_sensitive = True
         env_file = ".env"
         extra = "allow"
+
+def get_redis_connection():
+    """
+    Create and return a Redis connection for rate limiting.
+    
+    This function creates a Redis connection using the application settings
+    and is designed to be used by the rate limiter functionality.
+    
+    Returns:
+        Redis: A Redis client instance configured from application settings
+        
+    Raises:
+        ConnectionError: If Redis connection cannot be established
+    """
+    from redis import Redis
+    
+    try:
+        redis_client = Redis(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            db=settings.REDIS_DB,
+            decode_responses=True,  # Ensures string responses instead of bytes
+            socket_connect_timeout=5,  # 5 second connection timeout
+            socket_timeout=5,  # 5 second socket timeout
+            retry_on_timeout=True,
+            health_check_interval=30  # Check connection health every 30 seconds
+        )
+        
+        # Test the connection
+        redis_client.ping()
+        return redis_client
+        
+    except Exception as e:
+        from app.core.logger import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Failed to connect to Redis: {str(e)}")
+        raise ConnectionError(f"Could not connect to Redis: {str(e)}")
 
 settings = Settings() 

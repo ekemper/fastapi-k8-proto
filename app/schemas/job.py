@@ -9,7 +9,7 @@ class JobBase(BaseModel):
     description: Optional[str] = None
 
 class JobCreate(JobBase):
-    job_type: Optional[JobType] = JobType.GENERAL
+    job_type: Optional[JobType] = JobType.FETCH_LEADS
     campaign_id: Optional[str] = None
 
 class JobUpdate(BaseModel):

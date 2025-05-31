@@ -219,7 +219,7 @@ class DatabaseHelpers:
         job_defaults = {
             "name": "Test Job",
             "description": "Test job description",
-            "job_type": JobType.GENERAL,
+            "job_type": JobType.FETCH_LEADS,
             "status": JobStatus.PENDING,
             "campaign_id": campaign_id,
             "task_id": f"test-task-{uuid.uuid4()}",

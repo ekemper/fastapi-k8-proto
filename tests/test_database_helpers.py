@@ -142,7 +142,7 @@ def test_get_campaign_jobs_from_db(db_helpers, sample_campaign_data):
     
     # Create multiple jobs
     job1 = db_helpers.create_test_job_in_db(campaign.id, {"job_type": JobType.FETCH_LEADS})
-    job2 = db_helpers.create_test_job_in_db(campaign.id, {"job_type": JobType.ENRICH_LEADS})
+    job2 = db_helpers.create_test_job_in_db(campaign.id, {"job_type": JobType.ENRICH_LEAD})
     
     jobs = db_helpers.get_campaign_jobs_from_db(campaign.id)
     assert len(jobs) == 2
@@ -450,8 +450,8 @@ def test_multiple_campaigns_and_jobs(db_helpers, sample_campaign_data):
     
     # Create jobs for each campaign
     job1 = db_helpers.create_test_job_in_db(campaign1.id, {"job_type": JobType.FETCH_LEADS})
-    job2 = db_helpers.create_test_job_in_db(campaign2.id, {"job_type": JobType.ENRICH_LEADS})
-    job3 = db_helpers.create_test_job_in_db(campaign1.id, {"job_type": JobType.VERIFY_EMAILS})
+    job2 = db_helpers.create_test_job_in_db(campaign2.id, {"job_type": JobType.ENRICH_LEAD})
+    job3 = db_helpers.create_test_job_in_db(campaign1.id, {"job_type": JobType.ENRICH_LEAD})
     
     # Verify counts
     assert db_helpers.count_campaigns_in_db() == 2
@@ -465,8 +465,8 @@ def test_multiple_campaigns_and_jobs(db_helpers, sample_campaign_data):
     
     # Verify specific jobs
     db_helpers.verify_job_created_for_campaign(campaign1.id, JobType.FETCH_LEADS)
-    db_helpers.verify_job_created_for_campaign(campaign1.id, JobType.VERIFY_EMAILS)
-    db_helpers.verify_job_created_for_campaign(campaign2.id, JobType.ENRICH_LEADS)
+    db_helpers.verify_job_created_for_campaign(campaign1.id, JobType.ENRICH_LEAD)
+    db_helpers.verify_job_created_for_campaign(campaign2.id, JobType.ENRICH_LEAD)
     
     # Clean up and verify
     result = db_helpers.cleanup_test_data()

@@ -10,6 +10,8 @@ from app.models.campaign_status import CampaignStatus
 from app.models.job import Job, JobStatus, JobType
 from app.schemas.campaign import CampaignCreate, CampaignUpdate, CampaignStart
 from app.core.logger import get_logger
+from app.core.config import get_redis_connection
+from app.core.dependencies import get_apollo_rate_limiter, get_instantly_rate_limiter
 
 try:
     from app.background_services.apollo_service import ApolloService
@@ -29,16 +31,30 @@ class CampaignService:
     """Service for managing campaign business logic."""
     
     def __init__(self):
+        """
+        Initialize CampaignService with rate-limited services.
+        Services are initialized with rate limiting if available.
+        """
         try:
-            self.apollo_service = ApolloService() if ApolloService else None
+            if ApolloService:
+                redis_client = get_redis_connection()
+                apollo_rate_limiter = get_apollo_rate_limiter(redis_client)
+                self.apollo_service = ApolloService(rate_limiter=apollo_rate_limiter)
+            else:
+                self.apollo_service = None
         except Exception as e:
-            logger.warning(f"Failed to initialize ApolloService: {str(e)}")
+            logger.warning(f"Failed to initialize ApolloService with rate limiting: {str(e)}")
             self.apollo_service = None
             
         try:
-            self.instantly_service = InstantlyService() if InstantlyService else None
+            if InstantlyService:
+                redis_client = get_redis_connection()
+                instantly_rate_limiter = get_instantly_rate_limiter(redis_client)
+                self.instantly_service = InstantlyService(rate_limiter=instantly_rate_limiter)
+            else:
+                self.instantly_service = None
         except Exception as e:
-            logger.warning(f"Failed to initialize InstantlyService: {str(e)}")
+            logger.warning(f"Failed to initialize InstantlyService with rate limiting: {str(e)}")
             self.instantly_service = None
 
     async def get_campaigns(self, db: Session, organization_id: Optional[str] = None) -> List[Dict[str, Any]]:

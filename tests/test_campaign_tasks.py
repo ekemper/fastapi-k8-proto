@@ -11,7 +11,6 @@ from app.models.job import Job, JobStatus, JobType
 from app.workers.campaign_tasks import (
     fetch_and_save_leads_task,
     cleanup_campaign_jobs_task,
-    process_campaign_leads_task,
     campaign_health_check
 )
 
@@ -115,7 +114,7 @@ def test_cleanup_campaign_jobs_task(db_session, sample_campaign):
             campaign_id=sample_campaign.id,
             name="OLD_JOB_1",
             description="Old job 1",
-            job_type=JobType.GENERAL,
+            job_type=JobType.FETCH_LEADS,
             status=JobStatus.COMPLETED,
             created_at=old_date
         )
@@ -123,7 +122,7 @@ def test_cleanup_campaign_jobs_task(db_session, sample_campaign):
             campaign_id=sample_campaign.id,
             name="OLD_JOB_2", 
             description="Old job 2",
-            job_type=JobType.GENERAL,
+            job_type=JobType.FETCH_LEADS,
             status=JobStatus.FAILED,
             created_at=old_date
         )
@@ -133,7 +132,7 @@ def test_cleanup_campaign_jobs_task(db_session, sample_campaign):
             campaign_id=sample_campaign.id,
             name="RECENT_JOB",
             description="Recent job",
-            job_type=JobType.GENERAL,
+            job_type=JobType.FETCH_LEADS,
             status=JobStatus.COMPLETED,
             created_at=datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=5)
         )
@@ -189,7 +188,7 @@ def test_process_campaign_leads_task_mock(db_session, sample_campaign):
             campaign_id=sample_campaign.id,
             name=f'PROCESS_LEADS_{processing_type.upper()}',
             description=f'Process leads for campaign {sample_campaign.name} - {processing_type}',
-            job_type=JobType.ENRICH_LEADS,
+            job_type=JobType.ENRICH_LEAD,
             status=JobStatus.PROCESSING
         )
         db.add(processing_job)
