@@ -270,6 +270,12 @@ class TestApolloService:
         mock_db = Mock()
         mock_db.commit.return_value = None
         
+        # Mock query to return no existing emails
+        mock_query = Mock()
+        mock_db.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.all.return_value = []
+        
         # Test data
         leads_data = [
             {
@@ -289,10 +295,12 @@ class TestApolloService:
         ]
         
         # Test
-        count = service._save_leads_to_db(leads_data, 'test-campaign-id', mock_db)
+        result = service._save_leads_to_db(leads_data, 'test-campaign-id', mock_db)
         
         # Verify
-        assert count == 2
+        assert result['created'] == 2
+        assert result['skipped'] == 0
+        assert result['errors'] == 0
         assert mock_db.add.call_count == 2
         mock_db.commit.assert_called_once()
 
@@ -302,10 +310,12 @@ class TestApolloService:
         service = ApolloService()
         
         # Test with None database session
-        count = service._save_leads_to_db([{'email': 'test@example.com'}], 'test-campaign-id', None)
+        result = service._save_leads_to_db([{'email': 'test@example.com'}], 'test-campaign-id', None)
         
         # Verify
-        assert count == 0
+        assert result['created'] == 0
+        assert result['skipped'] == 0
+        assert result['errors'] == 0
 
     @patch('app.background_services.apollo_service.ApifyClient')
     def test_save_leads_to_db_commit_error(self, mock_apify_client):
@@ -324,6 +334,269 @@ class TestApolloService:
         
         # Verify rollback was called
         mock_db.rollback.assert_called_once()
+
+    @patch('app.background_services.apollo_service.ApifyClient')
+    def test_save_leads_to_db_duplicate_prevention(self, mock_apify_client):
+        """Test that _save_leads_to_db prevents duplicate emails."""
+        service = ApolloService()
+        
+        # Mock database session with query results
+        mock_db = Mock()
+        mock_db.commit.return_value = None
+        
+        # Mock existing email query - simulate that one email already exists
+        mock_query = Mock()
+        mock_db.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.all.return_value = [('existing@example.com',)]
+        
+        # Test data with some duplicates
+        leads_data = [
+            {
+                'first_name': 'John',
+                'last_name': 'Doe',
+                'email': 'john@example.com',
+                'organization': {'name': 'Test Company'},
+                'title': 'CEO'
+            },
+            {
+                'first_name': 'Jane',
+                'last_name': 'Smith',
+                'email': 'EXISTING@EXAMPLE.COM',  # Case different but same email
+                'organization_name': 'Another Company',
+                'title': 'CTO'
+            },
+            {
+                'first_name': 'Bob',
+                'last_name': 'Wilson',
+                'email': 'bob@example.com',
+                'title': 'Developer'
+            },
+            {
+                'first_name': 'Alice',
+                'last_name': 'Brown',
+                'email': '  john@example.com  ',  # Duplicate within batch (with spaces)
+                'title': 'Designer'
+            },
+            {
+                'first_name': 'Charlie',
+                'last_name': 'Davis',
+                'email': '',  # Empty email
+                'title': 'Manager'
+            },
+            {
+                'first_name': 'David',
+                'last_name': 'Miller',
+                # No email field
+                'title': 'Analyst'
+            }
+        ]
+        
+        # Test
+        result = service._save_leads_to_db(leads_data, 'test-campaign-id', mock_db)
+        
+        # Verify results
+        assert result['created'] == 2  # john@example.com and bob@example.com
+        assert result['skipped'] == 4  # existing email + duplicate within batch + empty email + no email
+        assert result['errors'] == 0
+        
+        # Verify that only 2 leads were added to the session
+        assert mock_db.add.call_count == 2
+        mock_db.commit.assert_called_once()
+        
+        # Check the query was called correctly
+        mock_db.query.assert_called_once()
+
+    @patch('app.background_services.apollo_service.ApifyClient')
+    def test_save_leads_to_db_database_error_during_duplicate_check(self, mock_apify_client):
+        """Test that _save_leads_to_db handles database errors during duplicate checking gracefully."""
+        service = ApolloService()
+        
+        # Mock database session that fails on query
+        mock_db = Mock()
+        mock_db.commit.return_value = None
+        mock_db.query.side_effect = Exception("Database connection error")
+        
+        leads_data = [
+            {
+                'first_name': 'John',
+                'last_name': 'Doe',
+                'email': 'john@example.com',
+                'title': 'CEO'
+            }
+        ]
+        
+        # Test - should continue processing even if duplicate check fails
+        result = service._save_leads_to_db(leads_data, 'test-campaign-id', mock_db)
+        
+        # Verify that lead was still created (duplicate check failed gracefully)
+        assert result['created'] == 1
+        assert result['skipped'] == 0
+        assert result['errors'] == 0
+        
+        assert mock_db.add.call_count == 1
+        mock_db.commit.assert_called_once()
+
+    @patch('app.background_services.apollo_service.ApifyClient')
+    def test_save_leads_to_db_individual_lead_error(self, mock_apify_client):
+        """Test that _save_leads_to_db handles individual lead creation errors."""
+        service = ApolloService()
+        
+        # Mock database session
+        mock_db = Mock()
+        mock_db.commit.return_value = None
+        
+        # Mock query to return no existing emails
+        mock_query = Mock()
+        mock_db.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.all.return_value = []
+        
+        # Mock Lead creation to fail for specific cases
+        with patch('app.background_services.apollo_service.Lead') as mock_lead_class:
+            def side_effect(*args, **kwargs):
+                if kwargs.get('email') == 'error@example.com':
+                    raise Exception("Database constraint violation")
+                return Mock()
+            
+            mock_lead_class.side_effect = side_effect
+            
+            leads_data = [
+                {
+                    'first_name': 'John',
+                    'email': 'john@example.com',
+                    'title': 'CEO'
+                },
+                {
+                    'first_name': 'Error',
+                    'email': 'error@example.com',  # This will trigger an error
+                    'title': 'Manager'
+                },
+                {
+                    'first_name': 'Jane',
+                    'email': 'jane@example.com',
+                    'title': 'Developer'
+                }
+            ]
+            
+            # Test
+            result = service._save_leads_to_db(leads_data, 'test-campaign-id', mock_db)
+            
+            # Verify results
+            assert result['created'] == 2  # john and jane
+            assert result['skipped'] == 0
+            assert result['errors'] == 1  # error lead
+            
+            assert mock_db.add.call_count == 2  # Only successful leads added
+            mock_db.commit.assert_called_once()
+
+    @patch('app.background_services.apollo_service.ApifyClient')
+    def test_fetch_leads_with_duplicate_prevention_reporting(self, mock_apify_client):
+        """Test that fetch_leads reports duplicate prevention statistics."""
+        # Setup mock Apify client
+        mock_client = Mock()
+        mock_apify_client.return_value = mock_client
+        
+        mock_actor = Mock()
+        mock_client.actor.return_value = mock_actor
+        mock_actor.call.return_value = {'defaultDatasetId': 'test-dataset-id'}
+        
+        mock_dataset = Mock()
+        mock_client.dataset.return_value = mock_dataset
+        mock_dataset.iterate_items.return_value = [
+            {'first_name': 'John', 'email': 'john@example.com'},
+            {'first_name': 'Jane', 'email': 'existing@example.com'},  # Will be duplicate
+            {'first_name': 'Bob', 'email': 'bob@example.com'}
+        ]
+        
+        # Mock database session with existing email
+        mock_db = Mock()
+        mock_db.commit.return_value = None
+        
+        mock_query = Mock()
+        mock_db.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.all.return_value = [('existing@example.com',)]
+        
+        # Test
+        service = ApolloService()
+        params = {'fileName': 'test.csv', 'totalRecords': 100, 'url': 'http://example.com'}
+        result = service.fetch_leads(params, 'test-campaign-id', mock_db)
+        
+        # Verify detailed statistics in response
+        assert result['count'] == 2  # john and bob created
+        assert result['created'] == 2
+        assert result['skipped'] == 1  # existing email skipped
+        assert result['total_processed'] == 3
+        assert 'Skipped 1 duplicate/invalid emails' in result['errors']
+        
+        mock_actor.call.assert_called_once_with(run_input=params)
+        mock_dataset.iterate_items.assert_called_once()
+
+    @patch('app.background_services.apollo_service.ApifyClient')
+    def test_duplicate_prevention_integration(self, mock_apify_client):
+        """Integration test demonstrating complete duplicate prevention workflow."""
+        # Setup mock Apify client
+        mock_client = Mock()
+        mock_apify_client.return_value = mock_client
+        
+        mock_actor = Mock()
+        mock_client.actor.return_value = mock_actor
+        mock_actor.call.return_value = {'defaultDatasetId': 'test-dataset-id'}
+        
+        mock_dataset = Mock()
+        mock_client.dataset.return_value = mock_dataset
+        
+        # First batch of leads
+        mock_dataset.iterate_items.return_value = [
+            {'first_name': 'John', 'email': 'john@example.com', 'title': 'CEO'},
+            {'first_name': 'Jane', 'email': 'jane@example.com', 'title': 'CTO'},
+        ]
+        
+        # Mock database session
+        mock_db = Mock()
+        mock_db.commit.return_value = None
+        
+        # Mock initial query (no existing emails)
+        mock_query = Mock()
+        mock_db.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.all.return_value = []
+        
+        # Test service
+        service = ApolloService()
+        params = {'fileName': 'test.csv', 'totalRecords': 100, 'url': 'http://example.com'}
+        
+        # First fetch - should create both leads
+        result1 = service.fetch_leads(params, 'test-campaign-1', mock_db)
+        
+        assert result1['created'] == 2
+        assert result1['skipped'] == 0
+        assert result1['total_processed'] == 2
+        assert len(result1['errors']) == 0
+        
+        # Now simulate second batch with some duplicates
+        mock_dataset.iterate_items.return_value = [
+            {'first_name': 'John', 'email': 'john@example.com', 'title': 'CEO'},  # Duplicate
+            {'first_name': 'Bob', 'email': 'bob@example.com', 'title': 'Developer'},  # New
+            {'first_name': 'Jane', 'email': 'JANE@EXAMPLE.COM', 'title': 'CTO'},  # Duplicate (case different)
+        ]
+        
+        # Mock query to return existing emails from first batch
+        mock_query.all.return_value = [('john@example.com',), ('jane@example.com',)]
+        
+        # Second fetch - should only create Bob, skip duplicates
+        result2 = service.fetch_leads(params, 'test-campaign-2', mock_db)
+        
+        assert result2['created'] == 1  # Only Bob created
+        assert result2['skipped'] == 2  # John and Jane skipped
+        assert result2['total_processed'] == 3
+        assert 'Skipped 2 duplicate/invalid emails' in result2['errors']
+        
+        # Verify total database interactions
+        # First batch: 2 adds, Second batch: 1 add = 3 total
+        assert mock_db.add.call_count == 3
+        assert mock_db.commit.call_count == 2
 
 # Integration tests that could be run with actual services (when available)
 class TestApolloServiceIntegration:

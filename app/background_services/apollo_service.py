@@ -83,18 +83,66 @@ class ApolloService:
                 extra={'component': 'apollo_service', 'rate_limiting': 'disabled'}
             )
 
-    def _save_leads_to_db(self, leads_data: List[Dict[str, Any]], campaign_id: str, db) -> int:
+    def _save_leads_to_db(self, leads_data: List[Dict[str, Any]], campaign_id: str, db) -> Dict[str, int]:
         """
         Helper to save leads to the database session and commit.
-        Returns the number of leads created.
+        Prevents duplicate emails from being created.
+        Returns detailed statistics about the operation.
         """
         if not db:
             logger.warning("No database session provided, skipping lead save")
-            return 0
+            return {'created': 0, 'skipped': 0, 'errors': 0}
+        
+        if not leads_data:
+            logger.info("No leads data provided, returning 0")
+            return {'created': 0, 'skipped': 0, 'errors': 0}
+            
+        # Extract all emails from the incoming leads data (filter out None/empty emails)
+        incoming_emails = [
+            lead_data.get('email', '').strip().lower() 
+            for lead_data in leads_data 
+            if lead_data.get('email') and lead_data.get('email').strip()
+        ]
+        
+        if not incoming_emails:
+            logger.warning("No valid emails found in leads data")
+            return {'created': 0, 'skipped': 0, 'errors': 0}
+        
+        # Batch check for existing emails in the database
+        try:
+            existing_emails_query = db.query(Lead.email).filter(
+                Lead.email.isnot(None),
+                Lead.email.in_(incoming_emails)
+            ).all()
+            existing_emails = {email[0].lower() for email in existing_emails_query}
+            
+            logger.info(f"[LEAD] Found {len(existing_emails)} existing emails out of {len(incoming_emails)} incoming emails")
+            
+        except Exception as e:
+            logger.error(f"[LEAD] Error checking existing emails: {str(e)}")
+            # Continue without duplicate checking if query fails
+            existing_emails = set()
             
         created_count = 0
+        skipped_count = 0
+        error_count = 0
+        
         for lead_data in leads_data:
             try:
+                email = lead_data.get('email')
+                if not email or not email.strip():
+                    logger.warning(f"[LEAD] Skipping lead with empty email: {lead_data.get('first_name', 'unknown')} {lead_data.get('last_name', '')}")
+                    skipped_count += 1
+                    continue
+                
+                email_normalized = email.strip().lower()
+                
+                # Check if this email already exists
+                if email_normalized in existing_emails:
+                    logger.info(f"[LEAD] Skipping duplicate email: {email} for campaign {campaign_id}")
+                    skipped_count += 1
+                    continue
+                
                 # Extract company name from organization or use organization_name field
                 company = None
                 if 'organization' in lead_data and lead_data['organization']:
@@ -107,7 +155,7 @@ class ApolloService:
                     campaign_id=campaign_id,
                     first_name=lead_data.get('first_name'),
                     last_name=lead_data.get('last_name'),
-                    email=lead_data.get('email'),
+                    email=email.strip(),  # Store original case but trimmed
                     phone=lead_data.get('phone'),
                     company=company,
                     title=lead_data.get('title'),
@@ -116,23 +164,36 @@ class ApolloService:
                 )
                 
                 db.add(lead)
+                
+                # Add this email to our existing set to prevent duplicates within this batch
+                existing_emails.add(email_normalized)
+                
                 created_count += 1
                 logger.info(f"[LEAD] Created lead: {lead.email} for campaign {campaign_id}")
                 
             except Exception as e:
                 logger.error(f"[LEAD] Error creating lead from data {lead_data.get('email', 'unknown')}: {str(e)}")
+                error_count += 1
                 continue
         
         # Commit all leads at once
         try:
             db.commit()
             logger.info(f"[LEAD] Successfully saved {created_count} leads for campaign {campaign_id}")
+            if skipped_count > 0:
+                logger.info(f"[LEAD] Skipped {skipped_count} duplicate/invalid emails for campaign {campaign_id}")
+            if error_count > 0:
+                logger.warning(f"[LEAD] Encountered {error_count} errors while processing leads for campaign {campaign_id}")
         except Exception as e:
             logger.error(f"[LEAD] Error committing leads to database: {str(e)}")
             db.rollback()
             raise
             
-        return created_count
+        return {
+            'created': created_count,
+            'skipped': skipped_count,
+            'errors': error_count
+        }
 
     def fetch_leads(self, params: Dict[str, Any], campaign_id: str, db=None) -> Dict[str, Any]:
         """
@@ -220,12 +281,24 @@ class ApolloService:
             # Process and save leads using helper
             errors = []
             try:
-                created_count = self._save_leads_to_db(results, campaign_id, db)
+                lead_stats = self._save_leads_to_db(results, campaign_id, db)
+                created_count = lead_stats['created']
+                skipped_count = lead_stats['skipped']
+                error_count = lead_stats['errors']
+                
+                # Add summary to response
+                if skipped_count > 0:
+                    errors.append(f"Skipped {skipped_count} duplicate/invalid emails")
+                if error_count > 0:
+                    errors.append(f"Encountered {error_count} errors during processing")
+                    
             except Exception as e:
                 error_msg = f"Error saving leads: {str(e)}"
                 logger.error(error_msg)
                 errors.append(error_msg)
                 created_count = 0
+                skipped_count = 0
+                error_count = 0
             
             # Log rate limiting status after successful call
             if self.rate_limiter:
@@ -253,7 +326,11 @@ class ApolloService:
             logger.info(f"Leads fetch complete: {created_count} leads created, {len(errors)} errors")
             return {
                 'count': created_count,
-                'errors': errors
+                'created': created_count,
+                'skipped': skipped_count,
+                'errors': errors,
+                'error_count': error_count,
+                'total_processed': len(results) if 'results' in locals() else 0
             }
             
         except Exception as e:

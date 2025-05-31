@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy import Column, String, DateTime, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -13,7 +13,7 @@ class Lead(Base):
     campaign_id = Column(String(36), ForeignKey('campaigns.id'), nullable=False)
     first_name = Column(String(100))
     last_name = Column(String(100))
-    email = Column(String(255))
+    email = Column(String(255), index=True)
     phone = Column(String(50))
     company = Column(String(255))
     title = Column(String(255))
@@ -30,6 +30,11 @@ class Lead(Base):
 
     # Relationship to campaign
     campaign = relationship('Campaign', back_populates='leads')
+
+    # Add unique constraint on email field (only for non-null emails)
+    __table_args__ = (
+        Index('idx_leads_email_unique', 'email', unique=True, postgresql_where="email IS NOT NULL"),
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
