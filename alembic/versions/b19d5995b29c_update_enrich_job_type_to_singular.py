@@ -19,12 +19,24 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Add the new ENRICH_LEAD enum value and commit it
+    # Check if ENRICH_LEAD enum value already exists before adding it
     connection = op.get_bind()
-    connection.execute(sa.text("ALTER TYPE jobtype ADD VALUE 'ENRICH_LEAD'"))
-    connection.commit()
     
-    # Now update existing data: change ENRICH_LEADS to ENRICH_LEAD
+    # Check if the enum value already exists
+    result = connection.execute(sa.text("""
+        SELECT EXISTS (
+            SELECT 1 FROM pg_enum 
+            WHERE enumlabel = 'ENRICH_LEAD' 
+            AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'jobtype')
+        )
+    """)).scalar()
+    
+    # Only add the enum value if it doesn't exist
+    if not result:
+        connection.execute(sa.text("ALTER TYPE jobtype ADD VALUE 'ENRICH_LEAD'"))
+        connection.commit()
+    
+    # Update existing data: change ENRICH_LEADS to ENRICH_LEAD
     connection.execute(sa.text("UPDATE jobs SET job_type = 'ENRICH_LEAD' WHERE job_type = 'ENRICH_LEADS'"))
     
     # Note: We cannot easily remove enum values in PostgreSQL without recreating the enum

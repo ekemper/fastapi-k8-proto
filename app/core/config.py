@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "your-secret-key-here"  # Should be from environment
     
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = []
+    BACKEND_CORS_ORIGINS: List[str]
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:

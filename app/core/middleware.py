@@ -70,7 +70,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         except HTTPException as e:
             return self._unauthorized_response(e.detail)
         except Exception as e:
-            logger.error(f"Authentication error: {str(e)}")
+            logger.error(f"Authentication error for {path}: {str(e)}")
             return self._unauthorized_response("Authentication failed")
         
         return await call_next(request)
@@ -149,5 +149,11 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                     "message": message
                 }
             },
-            headers={"WWW-Authenticate": "Bearer"}
+            headers={
+                "WWW-Authenticate": "Bearer",
+                "Access-Control-Allow-Origin": "http://localhost:5173",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            }
         ) 
