@@ -713,4 +713,243 @@ def test_campaign_workflow_integration(authenticated_client, db_session, authent
     assert list_response.status_code == 200
     list_data = list_response.json()
     campaigns = list_data["data"]["campaigns"]
-    assert any(c["id"] == campaign_id for c in campaigns) 
+    assert any(c["id"] == campaign_id for c in campaigns)
+
+# ---------------------------------------------------------------------------
+# Campaign Lead Stats Tests
+# ---------------------------------------------------------------------------
+
+def test_get_campaign_lead_stats_success(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test successful retrieval of campaign lead statistics."""
+    # Create campaign first
+    response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert response.status_code == 201
+    campaign_id = response.json()["data"]["id"]
+    
+    # Get campaign lead stats
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/leads/stats")
+    
+    # Verify API response
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["status"] == "success"
+    assert "data" in response_data
+    data = response_data["data"]
+    
+    # Verify stats structure (should be zeros for new campaign with no leads)
+    assert data["total_leads_fetched"] == 0
+    assert data["leads_with_email"] == 0
+    assert data["leads_with_verified_email"] == 0
+    assert data["leads_with_enrichment"] == 0
+    assert data["leads_with_email_copy"] == 0
+    assert data["leads_with_instantly_record"] == 0
+    assert data["error_message"] is None
+
+def test_get_campaign_lead_stats_not_found(authenticated_client, db_session):
+    """Test campaign lead stats retrieval for non-existent campaign."""
+    fake_campaign_id = str(uuid.uuid4())
+    response = authenticated_client.get(f"/api/v1/campaigns/{fake_campaign_id}/leads/stats")
+    assert response.status_code == 404
+
+def test_get_campaign_lead_stats_requires_auth(client, db_session):
+    """Test that campaign lead stats endpoint requires authentication."""
+    fake_campaign_id = str(uuid.uuid4())
+    response = client.get(f"/api/v1/campaigns/{fake_campaign_id}/leads/stats")
+    assert response.status_code == 401
+
+def test_get_campaign_lead_stats_malformed_id(authenticated_client, db_session):
+    """Test campaign lead stats retrieval with malformed campaign ID."""
+    response = authenticated_client.get("/api/v1/campaigns/invalid-id/leads/stats")
+    assert response.status_code == 404
+
+# ---------------------------------------------------------------------------
+# Campaign Instantly Analytics Tests
+# ---------------------------------------------------------------------------
+
+def test_get_campaign_instantly_analytics_success(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test successful retrieval of campaign Instantly analytics."""
+    # Create campaign first
+    response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert response.status_code == 201
+    campaign_id = response.json()["data"]["id"]
+    
+    # Get campaign Instantly analytics
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/instantly/analytics")
+    
+    # Verify API response
+    assert response.status_code == 200
+    response_data = response.json()
+    assert response_data["status"] == "success"
+    assert "data" in response_data
+    data = response_data["data"]
+    
+    # Verify analytics structure
+    assert "leads_count" in data
+    assert "contacted_count" in data
+    assert "emails_sent_count" in data
+    assert "open_count" in data
+    assert "link_click_count" in data
+    assert "reply_count" in data
+    assert "bounced_count" in data
+    assert "unsubscribed_count" in data
+    assert "completed_count" in data
+    assert "new_leads_contacted_count" in data
+    assert "total_opportunities" in data
+    assert "campaign_name" in data
+    assert "campaign_id" in data
+    assert "campaign_status" in data
+    assert "campaign_is_evergreen" in data
+    
+    # Campaign info should be populated (campaign was created with mocked Instantly ID)
+    assert data["campaign_name"] == authenticated_campaign_payload["name"]
+    assert data["campaign_id"] == campaign_id
+    assert data["leads_count"] == authenticated_campaign_payload["totalRecords"]
+    
+    # Since we have a mocked Instantly service, error should be None for successful analytics
+    assert data["error"] is None
+
+def test_get_campaign_instantly_analytics_not_found(authenticated_client, db_session):
+    """Test campaign Instantly analytics retrieval for non-existent campaign."""
+    fake_campaign_id = str(uuid.uuid4())
+    response = authenticated_client.get(f"/api/v1/campaigns/{fake_campaign_id}/instantly/analytics")
+    assert response.status_code == 404
+
+def test_get_campaign_instantly_analytics_requires_auth(client, db_session):
+    """Test that campaign Instantly analytics endpoint requires authentication."""
+    fake_campaign_id = str(uuid.uuid4())
+    response = client.get(f"/api/v1/campaigns/{fake_campaign_id}/instantly/analytics")
+    assert response.status_code == 401
+
+def test_get_campaign_instantly_analytics_malformed_id(authenticated_client, db_session):
+    """Test campaign Instantly analytics retrieval with malformed campaign ID."""
+    response = authenticated_client.get("/api/v1/campaigns/invalid-id/instantly/analytics")
+    assert response.status_code == 404
+
+# ---------------------------------------------------------------------------
+# Integration Tests for New Endpoints
+# ---------------------------------------------------------------------------
+
+def test_campaign_stats_and_analytics_workflow(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test the complete workflow of creating a campaign and accessing its stats and analytics."""
+    # Create campaign
+    response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert response.status_code == 201
+    campaign_id = response.json()["data"]["id"]
+    
+    # Get campaign details to verify it exists
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}")
+    assert response.status_code == 200
+    
+    # Get lead stats
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/leads/stats")
+    assert response.status_code == 200
+    stats_data = response.json()["data"]
+    assert stats_data["total_leads_fetched"] == 0  # New campaign should have no leads
+    
+    # Get Instantly analytics
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/instantly/analytics")
+    assert response.status_code == 200
+    analytics_data = response.json()["data"]
+    assert analytics_data["campaign_name"] == authenticated_campaign_payload["name"]
+    assert analytics_data["leads_count"] == authenticated_campaign_payload["totalRecords"]
+    
+    # Verify the /details endpoint still works (for backward compatibility)
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/details")
+    assert response.status_code == 200
+    details_data = response.json()["data"]
+    assert "campaign" in details_data
+    assert "lead_stats" in details_data
+    assert "instantly_analytics" in details_data
+
+def test_campaign_stats_error_handling(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test error handling in campaign stats endpoints."""
+    # Create campaign
+    response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert response.status_code == 201
+    campaign_id = response.json()["data"]["id"]
+    
+    # Test that stats endpoint handles errors gracefully
+    # (The current implementation returns zero stats rather than erroring)
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/leads/stats")
+    assert response.status_code == 200
+    stats_data = response.json()["data"]
+    assert "error_message" in stats_data
+    
+    # Test that analytics endpoint handles Instantly ID gracefully
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/instantly/analytics")
+    assert response.status_code == 200
+    analytics_data = response.json()["data"]
+    # Campaign was created with mocked Instantly ID, so no error should occur
+    assert analytics_data["error"] is None
+    assert analytics_data["campaign_id"] == campaign_id
+
+# ---------------------------------------------------------------------------
+# Schema Validation Tests
+# ---------------------------------------------------------------------------
+
+def test_campaign_stats_response_schema_validation(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test that campaign stats response conforms to expected schema."""
+    # Create campaign
+    response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert response.status_code == 201
+    campaign_id = response.json()["data"]["id"]
+    
+    # Get stats and validate schema
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/leads/stats")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    
+    # All required integer fields should be present and non-negative
+    required_int_fields = [
+        "total_leads_fetched", "leads_with_email", "leads_with_verified_email",
+        "leads_with_enrichment", "leads_with_email_copy", "leads_with_instantly_record"
+    ]
+    for field in required_int_fields:
+        assert field in data
+        assert isinstance(data[field], int)
+        assert data[field] >= 0
+    
+    # Error message should be optional string or null
+    assert "error_message" in data
+    assert data["error_message"] is None or isinstance(data["error_message"], str)
+
+def test_campaign_analytics_response_schema_validation(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test that campaign analytics response conforms to expected schema."""
+    # Create campaign
+    response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert response.status_code == 201
+    campaign_id = response.json()["data"]["id"]
+    
+    # Get analytics and validate schema
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/instantly/analytics")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    
+    # Optional integer fields should be integers or null
+    optional_int_fields = [
+        "leads_count", "contacted_count", "emails_sent_count", "open_count",
+        "link_click_count", "reply_count", "bounced_count", "unsubscribed_count",
+        "completed_count", "new_leads_contacted_count", "total_opportunities"
+    ]
+    for field in optional_int_fields:
+        assert field in data
+        if data[field] is not None:
+            assert isinstance(data[field], int)
+            assert data[field] >= 0
+    
+    # String fields
+    string_fields = ["campaign_name", "campaign_id", "campaign_status"]
+    for field in string_fields:
+        assert field in data
+        if data[field] is not None:
+            assert isinstance(data[field], str)
+    
+    # Boolean field
+    assert "campaign_is_evergreen" in data
+    if data["campaign_is_evergreen"] is not None:
+        assert isinstance(data["campaign_is_evergreen"], bool)
+    
+    # Error field
+    assert "error" in data
+    if data["error"] is not None:
+        assert isinstance(data["error"], str) 

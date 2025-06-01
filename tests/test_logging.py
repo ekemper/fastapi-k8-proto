@@ -66,7 +66,8 @@ class TestLogLevelConfiguration:
             "POSTGRES_SERVER": "localhost",
             "POSTGRES_USER": "test",
             "POSTGRES_PASSWORD": "test",
-            "POSTGRES_DB": "test"
+            "POSTGRES_DB": "test",
+            "BACKEND_CORS_ORIGINS": '["http://localhost:3000"]'
         }, clear=True):
             from app.core.config import Settings
             settings = Settings()
@@ -331,7 +332,8 @@ class TestLoggingConfiguration:
             "POSTGRES_SERVER": "localhost",
             "POSTGRES_USER": "test",
             "POSTGRES_PASSWORD": "test",
-            "POSTGRES_DB": "test"
+            "POSTGRES_DB": "test",
+            "BACKEND_CORS_ORIGINS": '["http://localhost:3000"]'
         }, clear=True):
             from app.core.config import Settings
             settings = Settings()
@@ -446,7 +448,8 @@ class TestConfigurationDefaults:
             "POSTGRES_SERVER": "localhost", 
             "POSTGRES_USER": "test",
             "POSTGRES_PASSWORD": "test",
-            "POSTGRES_DB": "test"
+            "POSTGRES_DB": "test",
+            "BACKEND_CORS_ORIGINS": '["http://localhost:3000"]'
         }, clear=True):
             from app.core.config import Settings
             settings = Settings()

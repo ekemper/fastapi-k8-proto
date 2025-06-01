@@ -7,7 +7,7 @@ rate limiting functionality in a real environment.
 import pytest
 import time
 import asyncio
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from redis import Redis
 from app.core.config import get_redis_connection
 from app.core.api_integration_rate_limiter import ApiIntegrationRateLimiter
@@ -137,7 +137,7 @@ class TestRedisIntegration:
         redis_client.delete(rate_limiter.key)
         
         with patch('requests.get') as mock_get:
-            mock_response = patch('requests.Response')
+            mock_response = Mock()
             mock_response.json.return_value = {'result': 'deliverable'}
             mock_response.raise_for_status.return_value = None
             mock_get.return_value = mock_response
@@ -169,7 +169,7 @@ class TestRedisIntegration:
         redis_client.delete(rate_limiter.key)
         
         with patch('requests.post') as mock_post:
-            mock_response = patch('requests.Response')
+            mock_response = Mock()
             mock_response.json.return_value = {'choices': [{'message': {'content': 'Test enrichment'}}]}
             mock_response.raise_for_status.return_value = None
             mock_post.return_value = mock_response
@@ -188,10 +188,10 @@ class TestRedisIntegration:
         redis_client.delete(rate_limiter.key)
         
         with patch('app.background_services.openai_service.OpenAI') as mock_openai_class:
-            mock_client = patch('openai.OpenAI')
+            mock_client = Mock()
             mock_openai_class.return_value = mock_client
             
-            mock_response = patch('openai.types.chat.ChatCompletion')
+            mock_response = Mock()
             mock_response.model_dump.return_value = {
                 'choices': [{'message': {'content': 'Test email copy'}}]
             }
@@ -211,7 +211,7 @@ class TestRedisIntegration:
         redis_client.delete(rate_limiter.key)
         
         with patch('requests.post') as mock_post:
-            mock_response = patch('requests.Response')
+            mock_response = Mock()
             mock_response.json.return_value = {'id': 'test_lead_id', 'status': 'created'}
             mock_response.raise_for_status.return_value = None
             mock_post.return_value = mock_response

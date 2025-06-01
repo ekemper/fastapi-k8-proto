@@ -17,6 +17,7 @@ from app.core.database import Base, get_db
 from app.models.campaign import Campaign
 from app.models.campaign_status import CampaignStatus
 from app.models.job import Job, JobStatus, JobType
+from app.models.lead import Lead
 from tests.helpers.database_helpers import DatabaseHelpers
 
 # ---------------------------------------------------------------------------
@@ -36,8 +37,9 @@ def test_db_session(test_db_session):
     finally:
         # Rollback any uncommitted transactions
         test_db_session.rollback()
-        # Clean up test data
+        # Clean up test data in correct order to avoid foreign key violations
         test_db_session.query(Job).delete()
+        test_db_session.query(Lead).delete()
         test_db_session.query(Campaign).delete()
         test_db_session.commit()
 
@@ -50,15 +52,17 @@ def clean_database(test_db_session):
     This fixture provides additional cleanup guarantees and
     can be used when explicit database cleaning is needed.
     """
-    # Clean before test
+    # Clean before test in correct order
     test_db_session.query(Job).delete()
+    test_db_session.query(Lead).delete()
     test_db_session.query(Campaign).delete()
     test_db_session.commit()
     
     yield test_db_session
     
-    # Clean after test
+    # Clean after test in correct order
     test_db_session.query(Job).delete()
+    test_db_session.query(Lead).delete()
     test_db_session.query(Campaign).delete()
     test_db_session.commit()
 
@@ -613,6 +617,7 @@ def auto_cleanup_database(test_db_session):
     # Clean up after test
     try:
         test_db_session.query(Job).delete()
+        test_db_session.query(Lead).delete()
         test_db_session.query(Campaign).delete()
         test_db_session.commit()
     except Exception:
@@ -649,11 +654,13 @@ def isolated_test_environment(clean_database):
     """
     # Verify database is clean
     assert clean_database.query(Campaign).count() == 0
+    assert clean_database.query(Lead).count() == 0
     assert clean_database.query(Job).count() == 0
     
     yield clean_database
     
     # Verify database is still clean after test
     clean_database.query(Job).delete()
+    clean_database.query(Lead).delete()
     clean_database.query(Campaign).delete()
     clean_database.commit() 

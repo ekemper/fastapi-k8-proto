@@ -97,4 +97,55 @@ class CampaignStatusResponse(BaseModel):
     campaign_status: CampaignStatus = Field(..., description="Current campaign status")
 
     class Config:
-        from_attributes = True 
+        from_attributes = True
+
+
+# Campaign Lead Stats Schema
+class CampaignLeadStats(BaseModel):
+    """Schema for campaign lead statistics."""
+    total_leads_fetched: int = Field(..., ge=0, description="Total number of leads fetched")
+    leads_with_email: int = Field(..., ge=0, description="Number of leads with email addresses")
+    leads_with_verified_email: int = Field(..., ge=0, description="Number of leads with verified email addresses")
+    leads_with_enrichment: int = Field(..., ge=0, description="Number of leads with enrichment data")
+    leads_with_email_copy: int = Field(..., ge=0, description="Number of leads with generated email copy")
+    leads_with_instantly_record: int = Field(..., ge=0, description="Number of leads with Instantly records")
+    error_message: Optional[str] = Field(None, description="Error message if any occurred during stats collection")
+
+    class Config:
+        from_attributes = True
+
+
+class CampaignStatsResponse(BaseModel):
+    """Schema for campaign stats API response."""
+    status: str = Field(..., description="Response status")
+    data: CampaignLeadStats = Field(..., description="Campaign lead statistics")
+
+
+# Instantly Analytics Schema
+class InstantlyAnalytics(BaseModel):
+    """Schema for Instantly campaign analytics."""
+    leads_count: Optional[int] = Field(None, ge=0, description="Total number of leads in the campaign")
+    contacted_count: Optional[int] = Field(None, ge=0, description="Number of leads contacted")
+    emails_sent_count: Optional[int] = Field(None, ge=0, description="Total number of emails sent")
+    open_count: Optional[int] = Field(None, ge=0, description="Number of emails opened")
+    link_click_count: Optional[int] = Field(None, ge=0, description="Number of links clicked")
+    reply_count: Optional[int] = Field(None, ge=0, description="Number of replies received")
+    bounced_count: Optional[int] = Field(None, ge=0, description="Number of bounced emails")
+    unsubscribed_count: Optional[int] = Field(None, ge=0, description="Number of unsubscribed leads")
+    completed_count: Optional[int] = Field(None, ge=0, description="Number of completed campaign sequences")
+    new_leads_contacted_count: Optional[int] = Field(None, ge=0, description="Number of new leads contacted")
+    total_opportunities: Optional[int] = Field(None, ge=0, description="Total opportunities generated")
+    campaign_name: Optional[str] = Field(None, description="Campaign name from Instantly")
+    campaign_id: Optional[str] = Field(None, description="Campaign ID from Instantly")
+    campaign_status: Optional[str] = Field(None, description="Campaign status from Instantly")
+    campaign_is_evergreen: Optional[bool] = Field(None, description="Whether the campaign is evergreen")
+    error: Optional[str] = Field(None, description="Error message if any occurred during analytics collection")
+
+    class Config:
+        from_attributes = True
+
+
+class InstantlyAnalyticsResponse(BaseModel):
+    """Schema for Instantly analytics API response."""
+    status: str = Field(..., description="Response status")
+    data: InstantlyAnalytics = Field(..., description="Instantly campaign analytics") 

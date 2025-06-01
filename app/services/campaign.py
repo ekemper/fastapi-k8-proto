@@ -447,7 +447,7 @@ class CampaignService:
                 detail=f"Error queueing cleanup task: {str(e)}"
             )
 
-    async def get_campaign_lead_stats(self, campaign_id: str, db: Session) -> Dict[str, Any]:
+    async def get_campaign_lead_stats(self, campaign_id: str, db: Session) -> "CampaignLeadStats":
         """Return stats for a campaign's leads."""
         try:
             # Check if campaign exists
@@ -462,32 +462,34 @@ class CampaignService:
             # This is a placeholder that returns zero stats
             # TODO: Implement Lead model and actual lead statistics
             
-            return {
-                'total_leads_fetched': 0,
-                'leads_with_email': 0,
-                'leads_with_verified_email': 0,
-                'leads_with_enrichment': 0,
-                'leads_with_email_copy': 0,
-                'leads_with_instantly_record': 0,
-                'error_message': None
-            }
+            from app.schemas.campaign import CampaignLeadStats
+            return CampaignLeadStats(
+                total_leads_fetched=0,
+                leads_with_email=0,
+                leads_with_verified_email=0,
+                leads_with_enrichment=0,
+                leads_with_email_copy=0,
+                leads_with_instantly_record=0,
+                error_message=None
+            )
             
         except HTTPException:
             raise
         except Exception as e:
             error_str = f"Error in get_campaign_lead_stats for campaign {campaign_id}: {str(e)}"
             logger.error(error_str, exc_info=True)
-            return {
-                'total_leads_fetched': 0,
-                'leads_with_email': 0,
-                'leads_with_verified_email': 0,
-                'leads_with_enrichment': 0,
-                'leads_with_email_copy': 0,
-                'leads_with_instantly_record': 0,
-                'error_message': error_str
-            }
+            from app.schemas.campaign import CampaignLeadStats
+            return CampaignLeadStats(
+                total_leads_fetched=0,
+                leads_with_email=0,
+                leads_with_verified_email=0,
+                leads_with_enrichment=0,
+                leads_with_email_copy=0,
+                leads_with_instantly_record=0,
+                error_message=error_str
+            )
 
-    async def get_campaign_instantly_analytics(self, campaign_id: str, db: Session) -> Dict[str, Any]:
+    async def get_campaign_instantly_analytics(self, campaign_id: str, db: Session) -> "InstantlyAnalytics":
         """Fetch and map Instantly analytics overview for a campaign."""
         try:
             # Get campaign
@@ -501,46 +503,113 @@ class CampaignService:
             campaign_dict = campaign.to_dict()
             instantly_campaign_id = campaign_dict.get('instantly_campaign_id')
             
+            from app.schemas.campaign import InstantlyAnalytics
+            
             if not instantly_campaign_id:
-                return {"error": "No Instantly campaign ID associated with this campaign."}
+                return InstantlyAnalytics(
+                    leads_count=campaign_dict.get("totalRecords"),
+                    contacted_count=None,
+                    emails_sent_count=None,
+                    open_count=None,
+                    link_click_count=None,
+                    reply_count=None,
+                    bounced_count=None,
+                    unsubscribed_count=None,
+                    completed_count=None,
+                    new_leads_contacted_count=None,
+                    total_opportunities=None,
+                    campaign_name=campaign_dict.get("name"),
+                    campaign_id=campaign_dict.get("id"),
+                    campaign_status=campaign_dict.get("status"),
+                    campaign_is_evergreen=False,
+                    error="No Instantly campaign ID associated with this campaign."
+                )
             
             # Fetch analytics from Instantly
             if not self.instantly_service:
-                return {"error": "InstantlyService not available"}
+                return InstantlyAnalytics(
+                    leads_count=campaign_dict.get("totalRecords"),
+                    contacted_count=None,
+                    emails_sent_count=None,
+                    open_count=None,
+                    link_click_count=None,
+                    reply_count=None,
+                    bounced_count=None,
+                    unsubscribed_count=None,
+                    completed_count=None,
+                    new_leads_contacted_count=None,
+                    total_opportunities=None,
+                    campaign_name=campaign_dict.get("name"),
+                    campaign_id=campaign_dict.get("id"),
+                    campaign_status=campaign_dict.get("status"),
+                    campaign_is_evergreen=False,
+                    error="InstantlyService not available"
+                )
                 
             analytics = self.instantly_service.get_campaign_analytics_overview(instantly_campaign_id)
             if 'error' in analytics:
-                return {"error": analytics['error']}
+                return InstantlyAnalytics(
+                    leads_count=campaign_dict.get("totalRecords"),
+                    contacted_count=None,
+                    emails_sent_count=None,
+                    open_count=None,
+                    link_click_count=None,
+                    reply_count=None,
+                    bounced_count=None,
+                    unsubscribed_count=None,
+                    completed_count=None,
+                    new_leads_contacted_count=None,
+                    total_opportunities=None,
+                    campaign_name=campaign_dict.get("name"),
+                    campaign_id=campaign_dict.get("id"),
+                    campaign_status=campaign_dict.get("status"),
+                    campaign_is_evergreen=False,
+                    error=analytics['error']
+                )
             
             # Map Instantly analytics response to required fields
-            mapped = {
-                "leads_count": analytics.get("leads_count") or campaign_dict.get("totalRecords"),
-                "contacted_count": analytics.get("contacted_count") or analytics.get("new_leads_contacted_count"),
-                "emails_sent_count": analytics.get("emails_sent_count"),
-                "open_count": analytics.get("open_count"),
-                "link_click_count": analytics.get("link_click_count"),
-                "reply_count": analytics.get("reply_count"),
-                "bounced_count": analytics.get("bounced_count"),
-                "unsubscribed_count": analytics.get("unsubscribed_count"),
-                "completed_count": analytics.get("completed_count"),
-                "new_leads_contacted_count": analytics.get("new_leads_contacted_count"),
-                "total_opportunities": analytics.get("total_opportunities"),
+            return InstantlyAnalytics(
+                leads_count=analytics.get("leads_count") or campaign_dict.get("totalRecords"),
+                contacted_count=analytics.get("contacted_count") or analytics.get("new_leads_contacted_count"),
+                emails_sent_count=analytics.get("emails_sent_count"),
+                open_count=analytics.get("open_count"),
+                link_click_count=analytics.get("link_click_count"),
+                reply_count=analytics.get("reply_count"),
+                bounced_count=analytics.get("bounced_count"),
+                unsubscribed_count=analytics.get("unsubscribed_count"),
+                completed_count=analytics.get("completed_count"),
+                new_leads_contacted_count=analytics.get("new_leads_contacted_count"),
+                total_opportunities=analytics.get("total_opportunities"),
                 # Campaign status info
-                "campaign_name": campaign_dict.get("name"),
-                "campaign_id": campaign_dict.get("id"),
-                "campaign_status": campaign_dict.get("status"),
-                "campaign_is_evergreen": analytics.get("is_evergreen", False),
-            }
-            
-            return mapped
+                campaign_name=campaign_dict.get("name"),
+                campaign_id=campaign_dict.get("id"),
+                campaign_status=campaign_dict.get("status"),
+                campaign_is_evergreen=analytics.get("is_evergreen", False),
+                error=None
+            )
             
         except HTTPException:
             raise
         except Exception as e:
             logger.error(f"Error getting campaign analytics: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error fetching campaign analytics: {str(e)}"
+            from app.schemas.campaign import InstantlyAnalytics
+            return InstantlyAnalytics(
+                leads_count=None,
+                contacted_count=None,
+                emails_sent_count=None,
+                open_count=None,
+                link_click_count=None,
+                reply_count=None,
+                bounced_count=None,
+                unsubscribed_count=None,
+                completed_count=None,
+                new_leads_contacted_count=None,
+                total_opportunities=None,
+                campaign_name=None,
+                campaign_id=campaign_id,
+                campaign_status=None,
+                campaign_is_evergreen=False,
+                error=f"Error fetching campaign analytics: {str(e)}"
             )
 
 

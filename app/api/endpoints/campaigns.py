@@ -4,12 +4,16 @@ from sqlalchemy.orm import Session
 import math
 
 from app.core.database import get_db
+from app.core.dependencies import get_current_active_user
 from app.models.campaign import Campaign
+from app.models.user import User
 from app.schemas.campaign import (
     CampaignCreate, 
     CampaignResponse, 
     CampaignUpdate, 
-    CampaignStart
+    CampaignStart,
+    CampaignStatsResponse,
+    InstantlyAnalyticsResponse
 )
 from app.services.campaign import CampaignService
 from pydantic import BaseModel
@@ -54,7 +58,8 @@ async def list_campaigns(
     per_page: int = Query(10, ge=1, le=100, description="Items per page"),
     organization_id: Optional[str] = Query(None, description="Filter by organization ID"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by campaign status"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """List all campaigns with optional pagination and organization filtering"""
     campaign_service = CampaignService()
@@ -95,7 +100,8 @@ async def list_campaigns(
 @router.post("/", response_model=CampaignCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_campaign(
     campaign_in: CampaignCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """Create a new campaign"""
     campaign_service = CampaignService()
@@ -117,7 +123,8 @@ async def create_campaign(
 @router.get("/{campaign_id}", response_model=CampaignDetailResponse)
 async def get_campaign(
     campaign_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """Get a specific campaign by ID"""
     campaign_service = CampaignService()
@@ -140,7 +147,8 @@ async def get_campaign(
 async def update_campaign(
     campaign_id: str,
     campaign_update: CampaignUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """Update campaign properties"""
     campaign_service = CampaignService()
@@ -163,7 +171,8 @@ async def update_campaign(
 async def start_campaign(
     campaign_id: str,
     start_data: CampaignStart = CampaignStart(),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """Start campaign process"""
     campaign_service = CampaignService()
@@ -182,10 +191,41 @@ async def start_campaign(
         data=CampaignResponse.from_campaign(campaign)
     )
 
+@router.get("/{campaign_id}/leads/stats", response_model=CampaignStatsResponse)
+async def get_campaign_lead_stats(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get campaign lead statistics"""
+    campaign_service = CampaignService()
+    lead_stats = await campaign_service.get_campaign_lead_stats(campaign_id, db)
+    
+    return CampaignStatsResponse(
+        status="success",
+        data=lead_stats
+    )
+
+@router.get("/{campaign_id}/instantly/analytics", response_model=InstantlyAnalyticsResponse)
+async def get_campaign_instantly_analytics(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get Instantly analytics for campaign"""
+    campaign_service = CampaignService()
+    instantly_analytics = await campaign_service.get_campaign_instantly_analytics(campaign_id, db)
+    
+    return InstantlyAnalyticsResponse(
+        status="success",
+        data=instantly_analytics
+    )
+
 @router.get("/{campaign_id}/details")
 async def get_campaign_details(
     campaign_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """Get campaign details including lead stats and Instantly analytics"""
     campaign_service = CampaignService()
@@ -212,7 +252,8 @@ async def get_campaign_details(
 async def cleanup_campaign_jobs(
     campaign_id: str,
     cleanup_data: Dict[str, int],
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """Clean up old jobs for a campaign"""
     if "days" not in cleanup_data:
@@ -240,7 +281,8 @@ async def cleanup_campaign_jobs(
 @router.get("/{campaign_id}/results")
 async def get_campaign_results(
     campaign_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """Get campaign results from completed jobs"""
     from app.models.job import Job, JobStatus

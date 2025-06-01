@@ -5,7 +5,7 @@ TODO: figure out millionverifier or find another service
 
 TODO: if an errror is recieved from a third party api call that involves rate limiting or account billing limits or token limits we should have a slack note
 
-
+TODO: implement logic that will halt the queue if a rate limiting error is recieved from an api integration. 
 
 TODO: event tracking - everything that happens to a campaign creates an event
     * create 

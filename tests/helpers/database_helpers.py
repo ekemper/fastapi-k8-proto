@@ -158,14 +158,17 @@ class DatabaseHelpers:
         Returns:
             Dictionary with counts of deleted records
         """
-        # Delete jobs first due to foreign key constraint
+        # Delete in correct order to avoid foreign key constraint violations
+        # Jobs first, then leads, then campaigns
         jobs_deleted = self.db_session.query(Job).delete()
+        leads_deleted = self.db_session.query(Lead).delete()
         campaigns_deleted = self.db_session.query(Campaign).delete()
         
         self.db_session.commit()
         
         return {
             "jobs_deleted": jobs_deleted,
+            "leads_deleted": leads_deleted,
             "campaigns_deleted": campaigns_deleted
         }
     

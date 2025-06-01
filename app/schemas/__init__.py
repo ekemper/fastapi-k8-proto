@@ -5,7 +5,11 @@ from app.schemas.campaign import (
     CampaignResponse,
     CampaignStart,
     CampaignStatusUpdate,
-    CampaignInDB
+    CampaignInDB,
+    CampaignLeadStats,
+    CampaignStatsResponse,
+    InstantlyAnalytics,
+    InstantlyAnalyticsResponse
 )
 from app.schemas.organization import (
     OrganizationCreate,
@@ -34,6 +38,10 @@ __all__ = [
     "CampaignStart",
     "CampaignStatusUpdate",
     "CampaignInDB",
+    "CampaignLeadStats",
+    "CampaignStatsResponse",
+    "InstantlyAnalytics",
+    "InstantlyAnalyticsResponse",
     "OrganizationCreate",
     "OrganizationUpdate",
     "OrganizationResponse",

@@ -8,6 +8,9 @@
 
 ## In creating the plan, the following rules must be observed and followed:
 
+
+    * always make a plan for approaching a problem
+
     * Make a comprehensive assessment of the entire application codebase, its archetecture, patterns, tests, services, and documentation. You will need to incorporate this knowledge into the plan you are creating. 
 
     * The current patterns, conventions, and configuration for this app should be maintained at all cost. If there are specific changes to establihed patterns, these should be documented. Please make copious use of doc strings and comments in source code to add context for decisions that are made. If there is significant change - please create a markdown document in the documentation directory to reestablish the source of truth for the pattern. 
@@ -39,6 +42,12 @@
     * Lets leave the unit tests out of the picture for the moment - we need a comprehensive set of functional api layer tests - the tests should hit the api and then check the database for results. 
 
     * When planning code edits, plan to update the tests immediately.
+
+    * to assess what environment variables are used in the application you can run 'cat .env' 
+
+    * DO NOT create or modify or otherwise fuck with the env files. 
+
+    * if there are configuration values that need to be updated or modified, you can ask the user to add or change something
 
     * For the plan you create, please create a md document in the root of the project and put the instructions there for safe keeping
 
