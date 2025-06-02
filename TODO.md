@@ -1,6 +1,8 @@
 
 TODO : re implement the logic that prevents a lead being created with an email that already belongs to an exiting lead
 
+TODO: set up a dev docker compose to copy the truncate database script to the api container on startup ( NOT PROD COMPOSE !)
+
 TODO: figure out millionverifier or find another service
 
 TODO: if an errror is recieved from a third party api call that involves rate limiting or account billing limits or token limits we should have a slack note
@@ -14,6 +16,7 @@ TODO: event tracking - everything that happens to a campaign creates an event
     * ENRICH_LEAD job completed / failed
     * api error recieved 
 
+TODO: implement a log rotation for every docker restart. dated log files, so we know which one is the newest. can delete oldest after there are 10 files?
 
 
 TODO: campaign report based on event data, 

@@ -21,10 +21,26 @@ def load_original_dataset():
     
     if not _DATASET_LOADED:
         print(f"[MockApifyClient] Loading original dataset from: {DATASET_PATH}")
-        with open(DATASET_PATH, 'r') as f:
-            _FULL_DATASET = json.load(f)
-        _DATASET_LOADED = True
-        print(f"[MockApifyClient] Loaded {len(_FULL_DATASET)} total records from file")
+        try:
+            with open(DATASET_PATH, 'r') as f:
+                _FULL_DATASET = json.load(f)
+            _DATASET_LOADED = True
+            
+            # Debug: Check the structure and content
+            print(f"[MockApifyClient] Successfully loaded {len(_FULL_DATASET)} total records from file")
+            
+            # Check first few records for structure
+            if _FULL_DATASET and len(_FULL_DATASET) > 0:
+                first_record = _FULL_DATASET[0]
+                print(f"[MockApifyClient] Sample record keys: {list(first_record.keys())}")
+                print(f"[MockApifyClient] Sample email: {first_record.get('email', 'NO_EMAIL_FIELD')}")
+            else:
+                print(f"[MockApifyClient] WARNING: Dataset appears to be empty!")
+                
+        except Exception as e:
+            print(f"[MockApifyClient] ERROR loading dataset: {e}")
+            _FULL_DATASET = []
+            _DATASET_LOADED = True
     
     return _FULL_DATASET
 
@@ -46,6 +62,11 @@ def get_next_available_indices(count=LEADS_PER_DATASET_CALL):
     dataset = load_original_dataset()
     consumed = get_consumed_indices()
     
+    print(f"[MockApifyClient] Looking for {count} available indices")
+    print(f"[MockApifyClient] Dataset size: {len(dataset)}")
+    print(f"[MockApifyClient] Already consumed: {len(consumed)} indices")
+    print(f"[MockApifyClient] Consumed indices: {sorted(list(consumed)) if len(consumed) < 20 else f'{len(consumed)} indices (showing first 10): {sorted(list(consumed))[:10]}'}")
+    
     available_indices = []
     for i in range(len(dataset)):
         if i not in consumed:
@@ -54,6 +75,7 @@ def get_next_available_indices(count=LEADS_PER_DATASET_CALL):
                 break
     
     print(f"[MockApifyClient] Found {len(available_indices)} available indices out of {count} requested")
+    print(f"[MockApifyClient] Available indices: {available_indices}")
     print(f"[MockApifyClient] Total consumed so far: {len(consumed)}/{len(dataset)}")
     
     return available_indices
@@ -77,8 +99,16 @@ def get_next_campaign_data(leads_count=LEADS_PER_DATASET_CALL):
     
     # Log the emails being provided for debugging
     emails_provided = [lead.get('email') for lead in campaign_data]
+    valid_emails = [email for email in emails_provided if email and email.strip()]
+    
     print(f"[MockApifyClient] Provided {len(campaign_data)} leads using indices {indices}")
     print(f"[MockApifyClient] Emails provided: {emails_provided}")
+    print(f"[MockApifyClient] Valid emails: {len(valid_emails)}/{len(emails_provided)}")
+    
+    # Debug: show sample data structure
+    if campaign_data:
+        sample_lead = campaign_data[0]
+        print(f"[MockApifyClient] Sample lead structure: {list(sample_lead.keys())}")
     
     return campaign_data
 
@@ -131,7 +161,9 @@ class MockDataset:
 class MockApifyClient:
     def __init__(self, api_token=None):
         self.api_token = api_token
+        self.actor_id = "mock/apollo-io-scraper"  # Mock actor ID
         print(f"[MockApifyClient] Initialized with api_token={'*' * 5 if api_token else None}")
+        print(f"[MockApifyClient] Using mock actor_id: {self.actor_id}")
         # Load the dataset once when the client is instantiated
         load_original_dataset()
     

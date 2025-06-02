@@ -631,12 +631,18 @@ def analyze_results(campaigns_data, job_results):
     return analyze_process_results(campaigns_data, job_results)
 
 def main():
+    from app.background_services.smoke_tests.mock_apify_client import reset_campaign_counter, get_dataset_status
+    
     print("\n" + "="*80)
     print("🚀 STARTING PROCESS-FOCUSED CONCURRENT CAMPAIGNS TEST")
-    print(f"📊 Testing {NUM_CAMPAIGNS} campaigns with pop-based mock data distribution")
-    print(f"📊 Monitoring concurrent job processing across all campaigns")
-    print(f"📊 Validating process integrity rather than specific content assignment")
+    print("📊 Testing 10 campaigns with pop-based mock data distribution")
+    print("📊 Monitoring concurrent job processing across all campaigns") 
+    print("📊 Validating process integrity rather than specific content assignment")
     print("="*80)
+    
+    # Debug: Check dataset status before starting
+    dataset_status = get_dataset_status()
+    print(f"\n[DEBUG] Dataset status at start: {dataset_status}")
     
     try:
         print("\n📋 PHASE 1: Authentication & Setup")
@@ -644,10 +650,14 @@ def main():
         token, email = signup_and_login()
         organization_id = create_organization(token)
         
-        print(f"\n📋 PHASE 2: Sequential Campaign Creation with Pop-Based Data")
+        print("\n📋 PHASE 2: Sequential Campaign Creation with Pop-Based Data")
         print("-" * 50)
+        print(f"[Setup] Creating {NUM_CAMPAIGNS} campaigns sequentially...")
         campaigns_data = create_campaigns_sequentially(
-            token, organization_id, NUM_CAMPAIGNS, LEADS_PER_CAMPAIGN
+            token, 
+            organization_id, 
+            NUM_CAMPAIGNS, 
+            LEADS_PER_CAMPAIGN
         )
         
         print(f"\n🔍 PHASE 3: Process Integrity Validation")

@@ -22,6 +22,8 @@ from app.core.dependencies import (
     get_openai_rate_limiter,
     get_instantly_rate_limiter
 )
+from app.core.queue_manager import get_queue_manager
+from app.core.circuit_breaker import ThirdPartyService
 
 logger = get_logger(__name__)
 
@@ -212,6 +214,24 @@ def enrich_lead_task(self, lead_id: str, campaign_id: str):
         lead.enrichment_job_id = enrichment_job.id
         db.commit()
         
+        # Check if job should be processed based on circuit breaker status
+        queue_manager = get_queue_manager(db)
+        circuit_breaker = queue_manager.circuit_breaker
+        
+        should_process, reason = queue_manager.should_process_job(enrichment_job)
+        if not should_process:
+            logger.warning(f"Pausing job {enrichment_job.id} for lead {lead_id}: {reason}")
+            enrichment_job.status = JobStatus.PAUSED
+            enrichment_job.error = f"Job paused: {reason}"
+            enrichment_job.completed_at = datetime.utcnow()
+            db.commit()
+            return {
+                "lead_id": lead_id,
+                "job_id": enrichment_job.id,
+                "status": "paused",
+                "reason": reason
+            }
+        
         error_details = {}
         
         # Step 1: Email Verification
@@ -265,12 +285,32 @@ def enrich_lead_task(self, lead_id: str, campaign_id: str):
             enrichment_result = perplexity_service.enrich_lead(lead)
             logger.info(f"Enrichment result for lead {lead_id}: {enrichment_result}")
             
+            # Check for rate limiting in response
+            if enrichment_result and enrichment_result.get('status') == 'rate_limited':
+                circuit_breaker.record_failure(ThirdPartyService.PERPLEXITY, 
+                                             enrichment_result.get('error', 'Rate limited'), 
+                                             'rate_limit')
+                # Pause this job and trigger circuit breaker
+                enrichment_job.status = JobStatus.PAUSED
+                enrichment_job.error = f"Paused due to Perplexity rate limit: {enrichment_result.get('error')}"
+                enrichment_job.completed_at = datetime.utcnow()
+                db.commit()
+                return {
+                    "lead_id": lead_id,
+                    "job_id": enrichment_job.id,
+                    "status": "paused",
+                    "reason": "Perplexity rate limit exceeded"
+                }
+            else:
+                circuit_breaker.record_success(ThirdPartyService.PERPLEXITY)
+            
             # Store enrichment results
             lead.enrichment_results = enrichment_result
-            enrichment_success = 'error' not in enrichment_result
+            enrichment_success = 'error' not in enrichment_result and enrichment_result.get('status') != 'rate_limited'
             if not enrichment_success:
                 error_details['enrichment'] = enrichment_result
         except Exception as e:
+            circuit_breaker.record_failure(ThirdPartyService.PERPLEXITY, str(e), 'exception')
             error_details['enrichment'] = str(e)
             logger.error(f"Enrichment error for lead {lead_id}: {str(e)}")
             enrichment_result = {'error': str(e)}
@@ -297,10 +337,19 @@ def enrich_lead_task(self, lead_id: str, campaign_id: str):
                 email_copy_result = openai_service.generate_email_copy(lead, enrichment_result)
                 logger.info(f"Email copy generation result for lead {lead_id}: {email_copy_result}")
                 
+                # Check for rate limiting in response
+                if email_copy_result and email_copy_result.get('status') == 'rate_limited':
+                    circuit_breaker.record_failure(ThirdPartyService.OPENAI, 
+                                                 email_copy_result.get('error', 'Rate limited'), 
+                                                 'rate_limit')
+                else:
+                    circuit_breaker.record_success(ThirdPartyService.OPENAI)
+                
                 # Store email copy results
                 lead.email_copy_gen_results = email_copy_result
-                email_copy_success = True
+                email_copy_success = 'error' not in email_copy_result and email_copy_result.get('status') != 'rate_limited'
             except Exception as e:
+                circuit_breaker.record_failure(ThirdPartyService.OPENAI, str(e), 'exception')
                 error_details['email_copy'] = str(e)
                 logger.error(f"Email copy generation failed for lead {lead_id}: {str(e)}")
                 lead.email_copy_gen_results = {'error': str(e)}
@@ -362,10 +411,20 @@ def enrich_lead_task(self, lead_id: str, campaign_id: str):
                     first_name=lead.first_name,
                     personalization=email_content
                 )
-                instantly_success = 'error' not in instantly_result
+                
+                # Check for rate limiting in response
+                if instantly_result and instantly_result.get('status') == 'rate_limited':
+                    circuit_breaker.record_failure(ThirdPartyService.INSTANTLY, 
+                                                 instantly_result.get('error', 'Rate limited'), 
+                                                 'rate_limit')
+                else:
+                    circuit_breaker.record_success(ThirdPartyService.INSTANTLY)
+                
+                instantly_success = 'error' not in instantly_result and instantly_result.get('status') != 'rate_limited'
                 lead.instantly_lead_record = instantly_result
                 logger.info(f"Instantly lead creation result for lead {lead_id}: {instantly_result}")
             except Exception as e:
+                circuit_breaker.record_failure(ThirdPartyService.INSTANTLY, str(e), 'exception')
                 error_details['instantly'] = str(e)
                 logger.error(f"Instantly lead creation failed for lead {lead_id}: {str(e)}")
                 lead.instantly_lead_record = {'error': str(e)}

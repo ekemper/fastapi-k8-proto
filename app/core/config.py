@@ -100,6 +100,12 @@ class Settings(BaseSettings):
     PERPLEXITY_RATE_LIMIT_REQUESTS: int = 50
     PERPLEXITY_RATE_LIMIT_PERIOD: int = 60
 
+    # External API Tokens
+    # Added to fix critical configuration management failure where ApolloService
+    # was refactored to use settings object but this field was never added
+    APIFY_API_TOKEN: str
+    APOLLO_ACTOR_ID: str = "code_crafter/apollo-io-scraper"
+
     @field_validator(
         "MILLIONVERIFIER_RATE_LIMIT_REQUESTS", "MILLIONVERIFIER_RATE_LIMIT_PERIOD",
         "APOLLO_RATE_LIMIT_REQUESTS", "APOLLO_RATE_LIMIT_PERIOD",

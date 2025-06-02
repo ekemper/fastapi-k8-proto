@@ -17,6 +17,7 @@ from app.core.database import get_db
 from app.core.logger import get_logger
 from app.core.api_integration_rate_limiter import ApiIntegrationRateLimiter
 from app.background_services.smoke_tests.mock_apify_client import MockApifyClient
+from app.core.config import settings
 
 logger = get_logger(__name__)
 
@@ -47,41 +48,51 @@ class ApolloService:
     """
     
     def __init__(self, rate_limiter: Optional[ApiIntegrationRateLimiter] = None):
-        """
-        Initialize the Apollo service.
+        self.settings = settings
         
-        Args:
-            rate_limiter: Optional rate limiter for Apollo/Apify API calls.
-                         If not provided, no rate limiting will be applied.
-        """
-        load_dotenv()
-        self.api_token = os.getenv('APIFY_API_TOKEN')
-        if not self.api_token:
-            raise ValueError("APIFY_API_TOKEN environment variable is not set")
+        # Set actor ID and API token properties
+        self.actor_id = settings.APOLLO_ACTOR_ID
+        self.api_token = settings.APIFY_API_TOKEN
         
-        # Use mock client if env var is set
-        use_mock = os.getenv("USE_APIFY_CLIENT_MOCK", "false").lower() == "true"
+        # Initialize rate limiter - prefer passed parameter, fallback to internal setup
+        if rate_limiter:
+            self.rate_limiter = rate_limiter
+            logger.info("Apollo service - Using provided rate limiter")
+        else:
+            # Initialize rate limiter with Redis connection
+            try:
+                from app.core.config import get_redis_connection
+                redis_client = get_redis_connection()
+                self.rate_limiter = ApiIntegrationRateLimiter(
+                    redis_client=redis_client,
+                    api_name="Apollo",
+                    max_requests=settings.APOLLO_RATE_LIMIT_REQUESTS,
+                    period_seconds=settings.APOLLO_RATE_LIMIT_PERIOD
+                )
+                logger.info("Apollo service - Using internal rate limiter setup")
+            except Exception as e:
+                logger.warning(f"Failed to initialize rate limiter: {e}. Proceeding without rate limiting.")
+                self.rate_limiter = None
+        
+        # Determine which Apify client to use
+        use_mock = os.getenv('USE_APIFY_CLIENT_MOCK', 'false').lower() == 'true'
+        logger.info(f"Apollo service - USE_APIFY_CLIENT_MOCK env var: {os.getenv('USE_APIFY_CLIENT_MOCK', 'not set')}")
+        logger.info(f"Apollo service - Using mock client: {use_mock}")
+        
         if use_mock:
-            self.client = MockApifyClient(self.api_token)
+            try:
+                from app.background_services.smoke_tests.mock_apify_client import MockApifyClient
+                self.apify_client = MockApifyClient()
+                logger.info("Apollo service - Successfully initialized with MockApifyClient")
+            except ImportError as e:
+                logger.error(f"Apollo service - Failed to import MockApifyClient: {e}")
+                logger.info("Apollo service - Falling back to real ApifyClient")
+                self.apify_client = ApifyClient(token=settings.APIFY_API_TOKEN)
         else:
-            self.client = ApifyClient(self.api_token)
+            self.apify_client = ApifyClient(token=settings.APIFY_API_TOKEN)
+            logger.info("Apollo service - Initialized with real ApifyClient")
         
-        self.actor_id = "code_crafter/apollo-io-scraper"
-        # self.actor_id = "supreme_coder/apollo-scraper"
-        self.rate_limiter = rate_limiter
-        
-        # Log rate limiting status for monitoring
-        if self.rate_limiter:
-            logger.info(
-                f"ApolloService initialized with rate limiting: "
-                f"{self.rate_limiter.max_requests} requests per {self.rate_limiter.period_seconds}s",
-                extra={'component': 'apollo_service', 'rate_limiting': 'enabled'}
-            )
-        else:
-            logger.info(
-                "ApolloService initialized without rate limiting",
-                extra={'component': 'apollo_service', 'rate_limiting': 'disabled'}
-            )
+        logger.info(f"ApolloService initialized with rate limiting: {settings.APOLLO_RATE_LIMIT_REQUESTS} requests per {settings.APOLLO_RATE_LIMIT_PERIOD}s", extra={"rate_limiting": "enabled"})
 
     def _save_leads_to_db(self, leads_data: List[Dict[str, Any]], campaign_id: str, db) -> Dict[str, int]:
         """
@@ -98,35 +109,35 @@ class ApolloService:
             return {'created': 0, 'skipped': 0, 'errors': 0}
             
         # Extract all emails from the incoming leads data (filter out None/empty emails)
+        # Note: We still process ALL records, but only check duplicates for valid emails
         incoming_emails = [
             lead_data.get('email', '').strip().lower() 
             for lead_data in leads_data 
             if lead_data.get('email') and lead_data.get('email').strip()
         ]
         
-        if not incoming_emails:
-            logger.warning("No valid emails found in leads data")
-            return {'created': 0, 'skipped': 0, 'errors': 0}
-        
-        # Batch check for existing emails in the database
-        try:
-            existing_emails_query = db.query(Lead.email).filter(
-                Lead.email.isnot(None),
-                Lead.email.in_(incoming_emails)
-            ).all()
-            existing_emails = {email[0].lower() for email in existing_emails_query}
-            
-            logger.info(f"[LEAD] Found {len(existing_emails)} existing emails out of {len(incoming_emails)} incoming emails")
-            
-        except Exception as e:
-            logger.error(f"[LEAD] Error checking existing emails: {str(e)}")
-            # Continue without duplicate checking if query fails
-            existing_emails = set()
+        # Batch check for existing emails in the database (only for valid emails)
+        existing_emails = set()
+        if incoming_emails:  # Only check if we have valid emails to check
+            try:
+                existing_emails_query = db.query(Lead.email).filter(
+                    Lead.email.isnot(None),
+                    Lead.email.in_(incoming_emails)
+                ).all()
+                existing_emails = {email[0].lower() for email in existing_emails_query}
+                
+                logger.info(f"[LEAD] Found {len(existing_emails)} existing emails out of {len(incoming_emails)} incoming emails")
+                
+            except Exception as e:
+                logger.error(f"[LEAD] Error checking existing emails: {str(e)}")
+                # Continue without duplicate checking if query fails
+                existing_emails = set()
             
         created_count = 0
         skipped_count = 0
         error_count = 0
         
+        # Process ALL records individually (including those with invalid emails)
         for lead_data in leads_data:
             try:
                 email = lead_data.get('email')
@@ -137,7 +148,7 @@ class ApolloService:
                 
                 email_normalized = email.strip().lower()
                 
-                # Check if this email already exists
+                # Check if this email already exists (only for valid emails)
                 if email_normalized in existing_emails:
                     logger.info(f"[LEAD] Skipping duplicate email: {email} for campaign {campaign_id}")
                     skipped_count += 1
@@ -270,12 +281,12 @@ class ApolloService:
                     }
                 )
             
-            run = self.client.actor(self.actor_id).call(run_input=params)
+            run = self.apify_client.actor(self.actor_id).call(run_input=params)
             dataset_id = run.get("defaultDatasetId")
             if not dataset_id:
                 raise Exception("No dataset ID returned from Apify actor run.")
             logger.info(f"[GOT dataset_id] {dataset_id}")
-            results = list(self.client.dataset(dataset_id).iterate_items())
+            results = list(self.apify_client.dataset(dataset_id).iterate_items())
             logger.info(f"[AFTER dataset.iterate_items] got {len(results)} results")
 
             # Process and save leads using helper

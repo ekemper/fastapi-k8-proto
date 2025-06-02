@@ -11,6 +11,7 @@ class JobStatus(str, enum.Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    PAUSED = "paused"
 
 class JobType(str, enum.Enum):
     """Campaign-specific job types for different operations."""
