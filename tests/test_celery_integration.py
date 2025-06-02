@@ -100,7 +100,7 @@ def test_job_status_endpoint(authenticated_client, existing_campaign):
     
     job_status = status_data["data"]
     assert job_status["id"] == job_data["id"]
-    assert job_status["status"] == "pending"  # Jobs are created with PENDING status by default
+    assert job_status["status"] == "PENDING"  # Jobs are created with PENDING status by default
 
 def test_list_jobs_endpoint(authenticated_client, existing_campaign):
     """Test jobs listing endpoint."""
@@ -195,4 +195,4 @@ def test_cancel_job_endpoint(authenticated_client, existing_campaign):
     assert status_response_data["status"] == "success"
     
     job_status = status_response_data["data"]
-    assert job_status["status"] in ["cancelled", "CANCELLED"]  # Allow both spellings and cases 
+    assert job_status["status"] in ["CANCELLED"]   

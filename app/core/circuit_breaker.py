@@ -130,8 +130,78 @@ class CircuitBreakerService:
             
             logger.warning(f"Circuit breaker state change for {service.value}: {old_state.value} -> {new_state.value}")
             
+            # Handle campaign events based on state changes
+            self._handle_campaign_events(service, old_state, new_state, metadata)
+            
         except Exception as e:
             logger.error(f"Error sending state change alert for {service}: {e}")
+    
+    def _handle_campaign_events(self, service: ThirdPartyService, old_state: CircuitState, new_state: CircuitState, metadata: Optional[Dict] = None):
+        """Handle campaign events based on circuit breaker state changes."""
+        try:
+            # Import here to avoid circular imports
+            from app.core.campaign_event_handler import get_campaign_event_handler
+            import asyncio
+            
+            campaign_handler = get_campaign_event_handler()
+            
+            # Handle different state transitions
+            if old_state != CircuitState.OPEN and new_state == CircuitState.OPEN:
+                # Circuit breaker opened - pause campaigns
+                reason = metadata.get('last_error', 'Service failure') if metadata else 'Service failure'
+                
+                # Run the async handler in a background task
+                try:
+                    # Try to get current event loop
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(campaign_handler.handle_circuit_breaker_opened(service, reason, metadata))
+                except RuntimeError:
+                    # No event loop running, run in a new thread
+                    import threading
+                    thread = threading.Thread(
+                        target=self._run_async_handler,
+                        args=(campaign_handler.handle_circuit_breaker_opened, service, reason, metadata)
+                    )
+                    thread.daemon = True
+                    thread.start()
+                    
+            elif old_state == CircuitState.OPEN and new_state == CircuitState.CLOSED:
+                # Circuit breaker closed - potentially resume campaigns
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(campaign_handler.handle_circuit_breaker_closed(service, metadata))
+                except RuntimeError:
+                    import threading
+                    thread = threading.Thread(
+                        target=self._run_async_handler,
+                        args=(campaign_handler.handle_circuit_breaker_closed, service, metadata)
+                    )
+                    thread.daemon = True
+                    thread.start()
+                    
+            elif new_state == CircuitState.HALF_OPEN:
+                # Circuit breaker half-open - log event
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(campaign_handler.handle_circuit_breaker_half_open(service, metadata))
+                except RuntimeError:
+                    import threading
+                    thread = threading.Thread(
+                        target=self._run_async_handler,
+                        args=(campaign_handler.handle_circuit_breaker_half_open, service, metadata)
+                    )
+                    thread.daemon = True
+                    thread.start()
+            
+        except Exception as e:
+            logger.error(f"Error handling campaign events for {service}: {e}")
+    
+    def _run_async_handler(self, handler_func, *args):
+        """Run an async handler function in a new event loop."""
+        try:
+            asyncio.run(handler_func(*args))
+        except Exception as e:
+            logger.error(f"Error running async campaign handler: {e}")
     
     def _get_circuit_state(self, service: ThirdPartyService) -> CircuitState:
         """Backward compatibility method for tests. Use get_circuit_state instead."""

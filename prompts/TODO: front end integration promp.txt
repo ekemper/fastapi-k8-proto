@@ -1,6 +1,0 @@
-please review the front end directory app at the root of the project - please do a throuough analysis of the logic that it uses to call to the api . Please come up with a plan to update the front end api calls to integrate with the api here
-
-the front end logic that calls to the api is in:
-
-/fastapi-k8-proto/frontend/src/config/api.ts
-

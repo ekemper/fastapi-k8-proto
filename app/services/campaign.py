@@ -12,6 +12,7 @@ from app.schemas.campaign import CampaignCreate, CampaignUpdate, CampaignStart
 from app.core.logger import get_logger
 from app.core.config import get_redis_connection
 from app.core.dependencies import get_apollo_rate_limiter, get_instantly_rate_limiter
+from app.core.circuit_breaker import ThirdPartyService, get_circuit_breaker
 
 try:
     from app.background_services.apollo_service import ApolloService
@@ -158,7 +159,7 @@ class CampaignService:
             )
 
     async def create_campaign(self, campaign_data: CampaignCreate, db: Session) -> Dict[str, Any]:
-        """Create a new campaign with organization validation."""
+        """Create a new campaign with organization validation and global pause state checking."""
         try:
             logger.info(f'Creating campaign: {campaign_data.name}')
             
@@ -174,6 +175,23 @@ class CampaignService:
                     detail=f"Organization {campaign_data.organization_id} not found"
                 )
             
+            # Check global pause state - warn about service availability but allow creation
+            circuit_breaker = get_circuit_breaker()
+            required_services = [
+                ThirdPartyService.APOLLO,
+                ThirdPartyService.PERPLEXITY,
+                ThirdPartyService.OPENAI,
+                ThirdPartyService.INSTANTLY,
+                ThirdPartyService.MILLIONVERIFIER
+            ]
+            
+            unavailable_services = []
+            for service in required_services:
+                allowed, reason = circuit_breaker.should_allow_request(service)
+                if not allowed:
+                    unavailable_services.append(f"{service.value} ({reason})")
+            
+            # Create campaign regardless of service availability
             campaign = Campaign(
                 name=campaign_data.name,
                 description=campaign_data.description or '',
@@ -184,12 +202,20 @@ class CampaignService:
                 url=campaign_data.url
             )
             
+            # Add status message if services are unavailable
+            if unavailable_services:
+                warning_msg = f"Campaign created successfully. Note: Some services are currently unavailable: {', '.join(unavailable_services)}. The campaign can be started once services recover."
+                campaign.status_message = warning_msg
+                logger.warning(f"Campaign {campaign_data.name} created with service availability warning: {warning_msg}")
+            else:
+                campaign.status_message = "Campaign created successfully. All services are available."
+            
             db.add(campaign)
             db.commit()
             db.refresh(campaign)
 
-            # Create Instantly campaign
-            if self.instantly_service:
+            # Create Instantly campaign only if service is available
+            if self.instantly_service and not any("instantly" in svc.lower() for svc in unavailable_services):
                 try:
                     instantly_response = self.instantly_service.create_campaign(name=campaign.name)
                     instantly_campaign_id = instantly_response.get('id')
@@ -201,8 +227,14 @@ class CampaignService:
                         logger.error(f"Instantly campaign creation failed: {instantly_response}")
                 except Exception as e:
                     logger.error(f"Error calling InstantlyService.create_campaign: {str(e)}")
+                    # Update campaign status message to reflect Instantly service issue
+                    campaign.status_message = f"{campaign.status_message} Warning: Instantly campaign creation failed."
+                    db.commit()
             else:
-                logger.warning("InstantlyService not available, skipping campaign creation")
+                if not self.instantly_service:
+                    logger.warning("InstantlyService not available, skipping campaign creation")
+                else:
+                    logger.warning("Instantly service is paused, skipping campaign creation")
 
             logger.info(f'Successfully created campaign {campaign.id}')
             return campaign.to_dict()
@@ -263,7 +295,7 @@ class CampaignService:
             )
 
     async def start_campaign(self, campaign_id: str, start_data: CampaignStart, db: Session) -> Dict[str, Any]:
-        """Start a campaign process."""
+        """Start a campaign process with enhanced business rule validation."""
         try:
             logger.info(f"Starting campaign process for campaign_id={campaign_id}")
 
@@ -275,19 +307,47 @@ class CampaignService:
                     detail=f"Campaign {campaign_id} not found"
                 )
 
-            if campaign.status != CampaignStatus.CREATED:
-                logger.error(f"Cannot start campaign {campaign_id} in status {campaign.status}")
+            # Enhanced validation using the comprehensive validation method
+            validation_results = self.validate_campaign_start_prerequisites(campaign)
+            
+            if not validation_results["can_start"]:
+                error_details = {
+                    "message": "Cannot start campaign due to validation failures",
+                    "errors": validation_results["errors"],
+                    "warnings": validation_results["warnings"],
+                    "validation_details": validation_results["validation_details"]
+                }
+                
+                # Log detailed validation failure
+                logger.error(f"Campaign {campaign_id} start validation failed: {error_details}")
+                
+                # Return appropriate HTTP status based on the type of failure
+                if any("paused" in error.lower() for error in validation_results["errors"]):
+                    status_code = status.HTTP_409_CONFLICT  # Conflict due to paused state
+                elif any("unavailable" in error.lower() for error in validation_results["errors"]):
+                    status_code = status.HTTP_503_SERVICE_UNAVAILABLE  # Service unavailable
+                else:
+                    status_code = status.HTTP_400_BAD_REQUEST  # General validation error
+                
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot start campaign in {campaign.status.value} status"
+                    status_code=status_code,
+                    detail=error_details
                 )
 
-            # Validate URL and count
+            # Log warnings if any (but allow campaign to start)
+            if validation_results["warnings"]:
+                logger.warning(f"Campaign {campaign_id} starting with warnings: {validation_results['warnings']}")
+
+            # Validate URL and count (existing validation)
             self.validate_search_url(campaign.url)
             self.validate_count(campaign.totalRecords)
 
             # Update campaign status to RUNNING
-            campaign.update_status(CampaignStatus.RUNNING, "Starting campaign process")
+            success_message = "Starting campaign process"
+            if validation_results["warnings"]:
+                success_message += f" (with warnings: {', '.join(validation_results['warnings'])})"
+                
+            campaign.update_status(CampaignStatus.RUNNING, success_message)
             db.commit()
             logger.info(f"Campaign {campaign_id} status updated to RUNNING")
 
@@ -322,7 +382,15 @@ class CampaignService:
             db.commit()
 
             logger.info(f'Successfully started campaign {campaign_id}')
-            return campaign.to_dict()
+            
+            # Return campaign data with validation info
+            campaign_dict = campaign.to_dict()
+            campaign_dict['start_validation'] = {
+                'warnings': validation_results["warnings"],
+                'services_checked': list(validation_results["validation_details"].get("services", {}).keys())
+            }
+            
+            return campaign_dict
 
         except HTTPException:
             raise
@@ -334,7 +402,7 @@ class CampaignService:
             try:
                 campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
                 if campaign:
-                    campaign.update_status(CampaignStatus.FAILED, error_message=str(e))
+                    campaign.update_status(CampaignStatus.FAILED, status_error=str(e))
                     db.commit()
             except Exception as inner_e:
                 logger.error(f"Error updating campaign status to failed: {str(inner_e)}")
@@ -611,6 +679,369 @@ class CampaignService:
                 campaign_is_evergreen=False,
                 error=f"Error fetching campaign analytics: {str(e)}"
             )
+
+    # Campaign Pausing/Resuming Methods
+    
+    async def pause_campaign(self, campaign_id: str, reason: str, db: Session) -> Dict[str, Any]:
+        """Pause a running campaign with reason tracking."""
+        try:
+            logger.info(f"Pausing campaign {campaign_id} with reason: {reason}")
+            
+            # Get campaign
+            campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+            if not campaign:
+                logger.warning(f"Campaign {campaign_id} not found during pause")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Campaign {campaign_id} not found"
+                )
+            
+            # Check if campaign can be paused
+            if campaign.status != CampaignStatus.RUNNING:
+                logger.warning(f"Cannot pause campaign {campaign_id} in status {campaign.status}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot pause campaign in {campaign.status.value} status. Only running campaigns can be paused."
+                )
+            
+            # Pause the campaign using the model method
+            success = campaign.pause(reason)
+            if not success:
+                logger.error(f"Failed to pause campaign {campaign_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to pause campaign due to invalid state transition"
+                )
+            
+            db.commit()
+            logger.info(f"Successfully paused campaign {campaign_id}")
+            
+            return {
+                "id": campaign.id,
+                "status": campaign.status.value,
+                "status_message": campaign.status_message,
+                "message": f"Campaign {campaign_id} has been paused"
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error pausing campaign {campaign_id}: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error pausing campaign: {str(e)}"
+            )
+    
+    async def resume_campaign(self, campaign_id: str, db: Session) -> Dict[str, Any]:
+        """Resume a paused campaign."""
+        try:
+            logger.info(f"Resuming campaign {campaign_id}")
+            
+            # Get campaign
+            campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+            if not campaign:
+                logger.warning(f"Campaign {campaign_id} not found during resume")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Campaign {campaign_id} not found"
+                )
+            
+            # Check if campaign can be resumed
+            if campaign.status != CampaignStatus.PAUSED:
+                logger.warning(f"Cannot resume campaign {campaign_id} in status {campaign.status}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot resume campaign in {campaign.status.value} status. Only paused campaigns can be resumed."
+                )
+            
+            # Check circuit breaker status before resuming
+            circuit_breaker = get_circuit_breaker()
+            
+            # Check all services that this campaign might depend on
+            required_services = [
+                ThirdPartyService.APOLLO,      # For lead fetching
+                ThirdPartyService.PERPLEXITY,  # For enrichment
+                ThirdPartyService.OPENAI,      # For email copy
+                ThirdPartyService.INSTANTLY,   # For lead creation
+                ThirdPartyService.MILLIONVERIFIER  # For email verification
+            ]
+            
+            blocked_services = []
+            for service in required_services:
+                allowed, reason = circuit_breaker.should_allow_request(service)
+                if not allowed:
+                    blocked_services.append((service.value, reason))
+            
+            if blocked_services:
+                service_list = ", ".join([f"{svc} ({reason})" for svc, reason in blocked_services])
+                error_msg = f"Cannot resume campaign: Required services are unavailable: {service_list}"
+                logger.warning(error_msg)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=error_msg
+                )
+            
+            # Resume the campaign using the model method
+            success = campaign.resume("Campaign resumed - services are available")
+            if not success:
+                logger.error(f"Failed to resume campaign {campaign_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to resume campaign due to invalid state transition"
+                )
+            
+            db.commit()
+            logger.info(f"Successfully resumed campaign {campaign_id}")
+            
+            return {
+                "id": campaign.id,
+                "status": campaign.status.value,
+                "status_message": campaign.status_message,
+                "message": f"Campaign {campaign_id} has been resumed"
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error resuming campaign {campaign_id}: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error resuming campaign: {str(e)}"
+            )
+    
+    async def pause_campaigns_for_service(self, service: ThirdPartyService, reason: str, db: Session) -> int:
+        """Pause all running campaigns that depend on a specific service."""
+        try:
+            logger.info(f"Pausing campaigns dependent on service {service.value} due to: {reason}")
+            
+            # Get all running campaigns
+            running_campaigns = (
+                db.query(Campaign)
+                .filter(Campaign.status == CampaignStatus.RUNNING)
+                .all()
+            )
+            
+            paused_count = 0
+            for campaign in running_campaigns:
+                try:
+                    # All campaigns depend on all services for enrichment pipeline
+                    # So we pause all running campaigns when any service goes down
+                    pause_reason = f"Service {service.value} unavailable: {reason}"
+                    success = campaign.pause(pause_reason)
+                    
+                    if success:
+                        paused_count += 1
+                        logger.info(f"Paused campaign {campaign.id} due to service {service.value} failure")
+                    else:
+                        logger.warning(f"Failed to pause campaign {campaign.id}")
+                        
+                except Exception as e:
+                    logger.error(f"Error pausing individual campaign {campaign.id}: {str(e)}")
+                    continue
+            
+            db.commit()
+            logger.info(f"Successfully paused {paused_count} campaigns due to {service.value} service failure")
+            return paused_count
+            
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error pausing campaigns for service {service}: {str(e)}", exc_info=True)
+            return 0
+    
+    def can_start_campaign(self, campaign: Campaign) -> tuple[bool, str]:
+        """
+        Enhanced validation to check if campaign can be started based on status, 
+        circuit breaker state, and global pause conditions.
+        Returns (can_start, reason).
+        """
+        # First check campaign model's built-in validation
+        can_start, reason = campaign.can_be_started()
+        if not can_start:
+            return can_start, reason
+        
+        # Check if campaign is explicitly paused
+        if campaign.status == CampaignStatus.PAUSED:
+            return False, "Cannot start paused campaign - resume it first"
+        
+        # Additional circuit breaker and service availability checks
+        try:
+            circuit_breaker = get_circuit_breaker()
+            
+            # Check all services that campaigns depend on
+            required_services = [
+                ThirdPartyService.APOLLO,
+                ThirdPartyService.PERPLEXITY,
+                ThirdPartyService.OPENAI,
+                ThirdPartyService.INSTANTLY,
+                ThirdPartyService.MILLIONVERIFIER
+            ]
+            
+            blocked_services = []
+            critical_services_down = []
+            
+            for service in required_services:
+                allowed, circuit_reason = circuit_breaker.should_allow_request(service)
+                if not allowed:
+                    service_info = f"{service.value} ({circuit_reason})"
+                    blocked_services.append(service_info)
+                    
+                    # Apollo is critical for campaign start (fetch leads)
+                    if service == ThirdPartyService.APOLLO:
+                        critical_services_down.append(service_info)
+            
+            # If critical services are down, prevent starting
+            if critical_services_down:
+                return False, f"Cannot start campaign: Critical service unavailable: {', '.join(critical_services_down)}"
+            
+            # If any services are blocked, warn but allow (depending on configuration)
+            if blocked_services:
+                # For now, prevent starting if any required service is down
+                # This can be made configurable in the future
+                return False, f"Cannot start campaign: Required services unavailable: {', '.join(blocked_services)}"
+            
+            # Check global queue pause status
+            is_globally_paused, pause_reason = self._check_global_pause_status()
+            if is_globally_paused:
+                return False, f"Cannot start campaign: System is in maintenance mode: {pause_reason}"
+            
+            return True, "Campaign can be started - all validations passed"
+            
+        except Exception as e:
+            logger.error(f"Error checking campaign start conditions: {str(e)}")
+            # If validation checks fail, be conservative and prevent starting
+            return False, f"Cannot start campaign: Validation check failed: {str(e)}"
+
+    def _check_global_pause_status(self) -> tuple[bool, str]:
+        """
+        Check if the system is in a global pause state that should prevent campaign starts.
+        Returns (is_paused, reason).
+        """
+        try:
+            circuit_breaker = get_circuit_breaker()
+            
+            # Check if too many services are down (e.g., more than 50%)
+            all_services = list(ThirdPartyService)
+            down_services = []
+            
+            for service in all_services:
+                allowed, reason = circuit_breaker.should_allow_request(service)
+                if not allowed:
+                    down_services.append(service.value)
+            
+            # If more than half the services are down, consider it a global pause state
+            if len(down_services) > len(all_services) / 2:
+                return True, f"Too many services unavailable ({len(down_services)}/{len(all_services)}): {', '.join(down_services)}"
+            
+            # Check for specific critical service combinations
+            apollo_down = ThirdPartyService.APOLLO in [s for s in all_services if not circuit_breaker.should_allow_request(s)[0]]
+            instantly_down = ThirdPartyService.INSTANTLY in [s for s in all_services if not circuit_breaker.should_allow_request(s)[0]]
+            
+            if apollo_down and instantly_down:
+                return True, "Both Apollo and Instantly services are down - cannot process campaign workflow"
+            
+            return False, "System is operational"
+            
+        except Exception as e:
+            logger.error(f"Error checking global pause status: {str(e)}")
+            # If check fails, assume not paused to avoid false positives
+            return False, "Global pause check failed - assuming operational"
+
+    def validate_campaign_start_prerequisites(self, campaign: Campaign) -> Dict[str, Any]:
+        """
+        Comprehensive validation of campaign start prerequisites.
+        Returns detailed validation results for API responses.
+        """
+        try:
+            results = {
+                "can_start": False,
+                "campaign_status_valid": False,
+                "services_available": False,
+                "global_state_ok": False,
+                "validation_details": {},
+                "warnings": [],
+                "errors": []
+            }
+            
+            # 1. Campaign status validation
+            can_start_model, model_reason = campaign.can_be_started()
+            results["campaign_status_valid"] = can_start_model
+            results["validation_details"]["campaign_status"] = {
+                "current_status": campaign.status.value,
+                "can_start": can_start_model,
+                "reason": model_reason
+            }
+            
+            if not can_start_model:
+                results["errors"].append(f"Campaign status issue: {model_reason}")
+            
+            # 2. Circuit breaker and service validation
+            circuit_breaker = get_circuit_breaker()
+            required_services = [
+                ThirdPartyService.APOLLO,
+                ThirdPartyService.PERPLEXITY,
+                ThirdPartyService.OPENAI,
+                ThirdPartyService.INSTANTLY,
+                ThirdPartyService.MILLIONVERIFIER
+            ]
+            
+            service_status = {}
+            unavailable_services = []
+            critical_unavailable = []
+            
+            for service in required_services:
+                allowed, reason = circuit_breaker.should_allow_request(service)
+                service_status[service.value] = {
+                    "available": allowed,
+                    "reason": reason if not allowed else "Available"
+                }
+                
+                if not allowed:
+                    unavailable_services.append(service.value)
+                    if service == ThirdPartyService.APOLLO:  # Critical service
+                        critical_unavailable.append(service.value)
+            
+            results["validation_details"]["services"] = service_status
+            results["services_available"] = len(critical_unavailable) == 0
+            
+            if critical_unavailable:
+                results["errors"].append(f"Critical services unavailable: {', '.join(critical_unavailable)}")
+            if unavailable_services:
+                if set(unavailable_services) - set(critical_unavailable):
+                    results["warnings"].append(f"Some services unavailable: {', '.join(set(unavailable_services) - set(critical_unavailable))}")
+            
+            # 3. Global state validation
+            is_globally_paused, pause_reason = self._check_global_pause_status()
+            results["global_state_ok"] = not is_globally_paused
+            results["validation_details"]["global_state"] = {
+                "is_paused": is_globally_paused,
+                "reason": pause_reason
+            }
+            
+            if is_globally_paused:
+                results["errors"].append(f"Global state issue: {pause_reason}")
+            
+            # 4. Overall determination
+            results["can_start"] = (
+                results["campaign_status_valid"] and 
+                results["services_available"] and 
+                results["global_state_ok"]
+            )
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error validating campaign start prerequisites: {str(e)}")
+            return {
+                "can_start": False,
+                "campaign_status_valid": False,
+                "services_available": False,
+                "global_state_ok": False,
+                "validation_details": {},
+                "warnings": [],
+                "errors": [f"Validation failed: {str(e)}"]
+            }
 
 
  

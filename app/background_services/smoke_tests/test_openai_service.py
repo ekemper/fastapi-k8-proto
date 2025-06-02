@@ -8,11 +8,13 @@ This test suite validates the OpenAIService functionality including:
 - OpenAI API response handling and email copy generation
 """
 
+import os
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from app.background_services.openai_service import OpenAIService
 from app.core.api_integration_rate_limiter import ApiIntegrationRateLimiter
-from app.models.lead import Lead
+from app.models import Lead
+from app.core.config import settings
 
 class TestOpenAIService:
     """Test suite for OpenAIService."""
@@ -20,15 +22,15 @@ class TestOpenAIService:
     def setup_method(self):
         """Setup for each test method."""
         # Mock the environment variable
-        self.api_key_patcher = patch.dict('os.environ', {'OPENAI_API_KEY': 'test-api-key'})
-        self.api_key_patcher.start()
+        os.environ['OPENAI_API_KEY'] = 'test-api-key'
         
     def teardown_method(self):
         """Cleanup after each test method."""
-        self.api_key_patcher.stop()
+        if 'OPENAI_API_KEY' in os.environ:
+            del os.environ['OPENAI_API_KEY']
 
     def test_backward_compatibility_initialization(self):
-        """Test that OpenAIService can be initialized without rate limiter (backward compatibility)."""
+        """Test that OpenAIService can still be initialized without rate limiter."""
         with patch('app.background_services.openai_service.OpenAI') as mock_openai:
             service = OpenAIService()
             
@@ -39,7 +41,12 @@ class TestOpenAIService:
         """Test that OpenAIService can be initialized with rate limiter."""
         with patch('app.background_services.openai_service.OpenAI') as mock_openai:
             mock_redis = Mock()
-            rate_limiter = ApiIntegrationRateLimiter(mock_redis, 'OpenAI', 60, 60)
+            # Use configuration settings instead of hardcoded values
+            rate_limiter = ApiIntegrationRateLimiter(
+                mock_redis, 'OpenAI', 
+                settings.OPENAI_RATE_LIMIT_REQUESTS, 
+                settings.OPENAI_RATE_LIMIT_PERIOD
+            )
             
             service = OpenAIService(rate_limiter=rate_limiter)
             
@@ -138,7 +145,11 @@ class TestOpenAIService:
             mock_redis.expire.return_value = True
             mock_redis.execute.return_value = [1, True]
             
-            rate_limiter = ApiIntegrationRateLimiter(mock_redis, 'OpenAI', 60, 60)
+            rate_limiter = ApiIntegrationRateLimiter(
+                mock_redis, 'OpenAI', 
+                settings.OPENAI_RATE_LIMIT_REQUESTS, 
+                settings.OPENAI_RATE_LIMIT_PERIOD
+            )
             
             # Test
             service = OpenAIService(rate_limiter=rate_limiter)
@@ -161,7 +172,11 @@ class TestOpenAIService:
             mock_redis.incr.return_value = 61  # Exceeds limit
             mock_redis.execute.return_value = [61, True]
             
-            rate_limiter = ApiIntegrationRateLimiter(mock_redis, 'OpenAI', 60, 60)
+            rate_limiter = ApiIntegrationRateLimiter(
+                mock_redis, 'OpenAI', 
+                settings.OPENAI_RATE_LIMIT_REQUESTS, 
+                settings.OPENAI_RATE_LIMIT_PERIOD
+            )
             
             # Test
             service = OpenAIService(rate_limiter=rate_limiter)
@@ -173,7 +188,7 @@ class TestOpenAIService:
             assert result['status'] == 'rate_limited'
             assert 'Rate limit exceeded' in result['error']
             assert 'remaining_requests' in result
-            assert result['retry_after_seconds'] == 60
+            assert result['retry_after_seconds'] == settings.OPENAI_RATE_LIMIT_PERIOD
 
     def test_generate_email_copy_missing_required_fields(self):
         """Test email copy generation with missing required fields."""
@@ -214,7 +229,11 @@ class TestOpenAIService:
             mock_redis = Mock()
             mock_redis.get.side_effect = Exception("Redis connection failed")
             
-            rate_limiter = ApiIntegrationRateLimiter(mock_redis, 'OpenAI', 60, 60)
+            rate_limiter = ApiIntegrationRateLimiter(
+                mock_redis, 'OpenAI', 
+                settings.OPENAI_RATE_LIMIT_REQUESTS, 
+                settings.OPENAI_RATE_LIMIT_PERIOD
+            )
             
             # Setup successful OpenAI response
             mock_client = Mock()
@@ -282,8 +301,12 @@ class TestOpenAIService:
             mock_redis.pipeline.return_value = mock_redis
             mock_redis.execute.side_effect = mock_execute
             
-            # Create rate limiter with limit of 1 request
-            rate_limiter = ApiIntegrationRateLimiter(mock_redis, 'OpenAI', 1, 60)
+            # Create rate limiter with limit of 1 request for this test
+            rate_limiter = ApiIntegrationRateLimiter(
+                mock_redis, 'OpenAI', 
+                1,  # Use limit of 1 for this specific test to simulate rate limiting
+                settings.OPENAI_RATE_LIMIT_PERIOD
+            )
             
             # Setup successful OpenAI response - fix the mock chain
             mock_client = Mock()

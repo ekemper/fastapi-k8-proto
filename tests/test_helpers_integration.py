@@ -148,7 +148,7 @@ def test_campaign_creation_with_job_verification(db_helpers, organization):
     job = db_helpers.create_test_job_in_db(campaign.id, {
         "name": "Test Background Job",
         "job_type": "FETCH_LEADS",
-        "status": "pending"
+        "status": "PENDING"
     })
     
     # Verify job was created for campaign
@@ -156,7 +156,7 @@ def test_campaign_creation_with_job_verification(db_helpers, organization):
     assert found_job.id == job.id
     
     # Verify job status
-    db_helpers.verify_job_status_in_db(job.id, "pending")
+    db_helpers.verify_job_status_in_db(job.id, "PENDING")
     
     # Get all jobs for campaign
     jobs = db_helpers.get_campaign_jobs_from_db(campaign.id)
@@ -164,11 +164,11 @@ def test_campaign_creation_with_job_verification(db_helpers, organization):
     assert jobs[0].id == job.id
     
     # Update job status
-    job.status = "completed"
+    job.status = "COMPLETED"
     db_helpers.db_session.commit()
     
     # Verify status update
-    db_helpers.verify_job_status_in_db(job.id, "completed")
+    db_helpers.verify_job_status_in_db(job.id, "COMPLETED")
 
 def test_multiple_campaigns_database_state(db_helpers, organization, authenticated_client):
     """Test managing multiple campaigns and verifying database state."""
@@ -244,7 +244,7 @@ def test_error_handling_and_cleanup(db_helpers, organization):
     
     # Should raise assertion error for non-existent job
     with pytest.raises(AssertionError):
-        db_helpers.verify_job_status_in_db(99999, "pending")
+        db_helpers.verify_job_status_in_db(99999, "PENDING")
     
     # Clean up all test data
     result = db_helpers.cleanup_test_data()

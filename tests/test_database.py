@@ -29,8 +29,8 @@ def test_create_job(db_session):
     db_session.commit()
 
 def test_job_status_enum():
-    assert JobStatus.PENDING.value == "pending"
-    assert JobStatus.PROCESSING.value == "processing"
-    assert JobStatus.COMPLETED.value == "completed"
-    assert JobStatus.FAILED.value == "failed"
-    assert JobStatus.CANCELLED.value == "cancelled" 
+    assert JobStatus.PENDING.value == "PENDING"
+    assert JobStatus.PROCESSING.value == "PROCESSING"
+    assert JobStatus.COMPLETED.value == "COMPLETED"
+    assert JobStatus.FAILED.value == "FAILED"
+    assert JobStatus.CANCELLED.value == "CANCELLED" 

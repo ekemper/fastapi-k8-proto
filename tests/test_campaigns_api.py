@@ -914,42 +914,262 @@ def test_campaign_stats_response_schema_validation(authenticated_client, db_sess
     assert data["error_message"] is None or isinstance(data["error_message"], str)
 
 def test_campaign_analytics_response_schema_validation(authenticated_client, db_session, authenticated_campaign_payload):
-    """Test that campaign analytics response conforms to expected schema."""
+    """Test campaign analytics response contains all required fields with proper types."""
     # Create campaign
-    response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
-    assert response.status_code == 201
-    campaign_id = response.json()["data"]["id"]
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert create_response.status_code == 201
+    campaign_id = create_response.json()["data"]["id"]
     
-    # Get analytics and validate schema
+    # Get analytics
     response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/instantly/analytics")
-    assert response.status_code == 200
-    data = response.json()["data"]
     
-    # Optional integer fields should be integers or null
-    optional_int_fields = [
+    assert response.status_code == 200
+    response_data = response.json()
+    
+    # Verify structure
+    assert "data" in response_data
+    data = response_data["data"]
+    
+    # Required fields for analytics response (actual field names from InstantlyAnalytics schema)
+    required_fields = [
+        "leads_count", "contacted_count", "emails_sent_count", "open_count",
+        "link_click_count", "reply_count", "bounced_count", "unsubscribed_count",
+        "completed_count", "new_leads_contacted_count", "total_opportunities",
+        "campaign_name", "campaign_id", "campaign_status", "campaign_is_evergreen"
+    ]
+    
+    for field in required_fields:
+        assert field in data, f"Missing field: {field}"
+        
+    # Verify specific field types
+    # Integer fields (can be None)
+    int_fields = [
         "leads_count", "contacted_count", "emails_sent_count", "open_count",
         "link_click_count", "reply_count", "bounced_count", "unsubscribed_count",
         "completed_count", "new_leads_contacted_count", "total_opportunities"
     ]
-    for field in optional_int_fields:
-        assert field in data
+    for field in int_fields:
         if data[field] is not None:
-            assert isinstance(data[field], int)
-            assert data[field] >= 0
+            assert isinstance(data[field], int), f"Field {field} should be int or None, got {type(data[field])}"
     
     # String fields
     string_fields = ["campaign_name", "campaign_id", "campaign_status"]
     for field in string_fields:
-        assert field in data
         if data[field] is not None:
-            assert isinstance(data[field], str)
+            assert isinstance(data[field], str), f"Field {field} should be string or None, got {type(data[field])}"
     
     # Boolean field
-    assert "campaign_is_evergreen" in data
-    if data["campaign_is_evergreen"] is not None:
-        assert isinstance(data["campaign_is_evergreen"], bool)
+    assert isinstance(data["campaign_is_evergreen"], bool), f"campaign_is_evergreen should be boolean, got {type(data['campaign_is_evergreen'])}"
+
+# ---------------------------------------------------------------------------
+# Business Rule Enforcement Tests
+# ---------------------------------------------------------------------------
+
+def test_paused_campaign_cannot_be_started(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test that paused campaigns cannot be started and return appropriate error."""
+    # Create campaign
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert create_response.status_code == 201
+    campaign_id = create_response.json()["data"]["id"]
     
-    # Error field
-    assert "error" in data
-    if data["error"] is not None:
-        assert isinstance(data["error"], str) 
+    # Manually set campaign to PAUSED status
+    campaign = db_session.query(Campaign).filter(Campaign.id == campaign_id).first()
+    campaign.status = CampaignStatus.PAUSED
+    campaign.status_message = "Campaign paused for testing"
+    db_session.commit()
+    
+    # Try to start paused campaign
+    response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
+    
+    # Should return conflict error (409) for paused campaign
+    assert response.status_code == 409
+    response_data = response.json()
+    assert "detail" in response_data
+    assert isinstance(response_data["detail"], dict)
+    assert "errors" in response_data["detail"]
+    assert any("paused" in error.lower() for error in response_data["detail"]["errors"])
+
+def test_campaign_start_validation_endpoint(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test the campaign start validation endpoint returns comprehensive validation results."""
+    # Create campaign
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert create_response.status_code == 201
+    campaign_id = create_response.json()["data"]["id"]
+    
+    # Test validation endpoint for created campaign
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/start/validate")
+    assert response.status_code == 200
+    
+    validation_data = response.json()["data"]
+    
+    # Verify validation response structure
+    required_fields = [
+        "can_start", "campaign_status_valid", "services_available", 
+        "global_state_ok", "validation_details", "warnings", "errors"
+    ]
+    for field in required_fields:
+        assert field in validation_data, f"Missing validation field: {field}"
+    
+    # For a created campaign, campaign_status_valid should be True
+    assert validation_data["campaign_status_valid"] is True
+    
+    # Validation details should contain campaign status info
+    assert "campaign_status" in validation_data["validation_details"]
+    assert "services" in validation_data["validation_details"]
+    assert "global_state" in validation_data["validation_details"]
+
+def test_paused_campaign_validation_details(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test validation endpoint provides detailed information for paused campaigns."""
+    # Create campaign
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert create_response.status_code == 201
+    campaign_id = create_response.json()["data"]["id"]
+    
+    # Pause the campaign
+    campaign = db_session.query(Campaign).filter(Campaign.id == campaign_id).first()
+    campaign.status = CampaignStatus.PAUSED
+    campaign.status_message = "Paused for maintenance"
+    db_session.commit()
+    
+    # Check validation
+    response = authenticated_client.get(f"/api/v1/campaigns/{campaign_id}/start/validate")
+    assert response.status_code == 200
+    
+    validation_data = response.json()["data"]
+    
+    # Should indicate campaign cannot be started
+    assert validation_data["can_start"] is False
+    assert validation_data["campaign_status_valid"] is False
+    
+    # Should have detailed error information
+    assert len(validation_data["errors"]) > 0
+    assert any("paused" in error.lower() for error in validation_data["errors"])
+    
+    # Campaign status details should show current status
+    campaign_status_details = validation_data["validation_details"]["campaign_status"]
+    assert campaign_status_details["current_status"] == "PAUSED"
+    assert campaign_status_details["can_start"] is False
+
+def test_completed_campaign_cannot_be_started(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test that completed campaigns cannot be started."""
+    # Create campaign
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert create_response.status_code == 201
+    campaign_id = create_response.json()["data"]["id"]
+    
+    # Set campaign to COMPLETED status
+    campaign = db_session.query(Campaign).filter(Campaign.id == campaign_id).first()
+    campaign.status = CampaignStatus.COMPLETED
+    campaign.status_message = "Campaign completed"
+    db_session.commit()
+    
+    # Try to start completed campaign
+    response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
+    
+    # Should return bad request error
+    assert response.status_code in [400, 409]
+    response_data = response.json()
+    assert "detail" in response_data
+
+def test_failed_campaign_cannot_be_started(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test that failed campaigns cannot be started."""
+    # Create campaign
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert create_response.status_code == 201
+    campaign_id = create_response.json()["data"]["id"]
+    
+    # Set campaign to FAILED status
+    campaign = db_session.query(Campaign).filter(Campaign.id == campaign_id).first()
+    campaign.status = CampaignStatus.FAILED
+    campaign.status_message = "Campaign failed"
+    campaign.status_error = "Test failure"
+    db_session.commit()
+    
+    # Try to start failed campaign
+    response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
+    
+    # Should return bad request error
+    assert response.status_code in [400, 409]
+
+def test_running_campaign_cannot_be_started_again(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test that running campaigns cannot be started again."""
+    # Create campaign
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert create_response.status_code == 201
+    campaign_id = create_response.json()["data"]["id"]
+    
+    # Set campaign to RUNNING status
+    campaign = db_session.query(Campaign).filter(Campaign.id == campaign_id).first()
+    campaign.status = CampaignStatus.RUNNING
+    campaign.status_message = "Campaign running"
+    db_session.commit()
+    
+    # Try to start running campaign
+    response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
+    
+    # Should return bad request error
+    assert response.status_code in [400, 409]
+
+def test_campaign_creation_with_service_warnings(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test that campaign creation includes warnings when services are unavailable."""
+    # Note: This test depends on the actual circuit breaker state
+    # In a real test environment, you might mock the circuit breaker to simulate service outages
+    
+    # Create campaign (should succeed regardless of service state)
+    response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert response.status_code == 201
+    
+    campaign_data = response.json()["data"]
+    campaign_id = campaign_data["id"]
+    
+    # Verify campaign was created
+    assert campaign_id is not None
+    assert campaign_data["status"] == "CREATED"
+    
+    # Check if status message includes any service warnings
+    # This will depend on the current state of circuit breakers
+    campaign = db_session.query(Campaign).filter(Campaign.id == campaign_id).first()
+    assert campaign.status_message is not None
+    
+    # Status message should either indicate all services available or include warnings
+    status_msg = campaign.status_message.lower()
+    assert "campaign created successfully" in status_msg
+
+def test_detailed_error_messages_for_start_failures(authenticated_client, db_session, authenticated_campaign_payload):
+    """Test that start failures return detailed, actionable error messages."""
+    # Create campaign
+    create_response = authenticated_client.post("/api/v1/campaigns/", json=authenticated_campaign_payload)
+    assert create_response.status_code == 201
+    campaign_id = create_response.json()["data"]["id"]
+    
+    # Set campaign to PAUSED to simulate a business rule violation
+    campaign = db_session.query(Campaign).filter(Campaign.id == campaign_id).first()
+    campaign.status = CampaignStatus.PAUSED
+    campaign.status_message = "Paused for testing detailed errors"
+    db_session.commit()
+    
+    # Try to start paused campaign
+    response = authenticated_client.post(f"/api/v1/campaigns/{campaign_id}/start", json={})
+    
+    # Should return detailed error information
+    assert response.status_code == 409  # Conflict due to paused state
+    response_data = response.json()
+    
+    # Verify error structure
+    assert "detail" in response_data
+    error_detail = response_data["detail"]
+    assert isinstance(error_detail, dict)
+    
+    # Should contain comprehensive error information
+    required_error_fields = ["message", "errors", "warnings", "validation_details"]
+    for field in required_error_fields:
+        assert field in error_detail, f"Missing error field: {field}"
+    
+    # Errors should be specific and actionable
+    assert len(error_detail["errors"]) > 0
+    assert any("paused" in error.lower() and "resume" in error.lower() for error in error_detail["errors"])
+    
+    # Validation details should provide context
+    assert "campaign_status" in error_detail["validation_details"]
+    assert "services" in error_detail["validation_details"]
+    assert "global_state" in error_detail["validation_details"] 

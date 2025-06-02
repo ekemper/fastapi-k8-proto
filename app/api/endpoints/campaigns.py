@@ -50,6 +50,18 @@ class CampaignStartResponse(BaseModel):
     status: str
     data: CampaignResponse
 
+class CampaignPauseRequest(BaseModel):
+    reason: str = "Manual pause requested"
+
+class CampaignActionResponse(BaseModel):
+    status: str
+    message: str
+    data: dict
+
+class CampaignValidationResponse(BaseModel):
+    status: str
+    data: dict
+
 router = APIRouter()
 
 @router.get("/", response_model=CampaignsListResponse)
@@ -167,6 +179,31 @@ async def update_campaign(
         data=CampaignResponse.from_campaign(campaign)
     )
 
+@router.get("/{campaign_id}/start/validate", response_model=CampaignValidationResponse)
+async def validate_campaign_start(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Validate if a campaign can be started without actually starting it"""
+    campaign_service = CampaignService()
+    
+    # Get campaign
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    if not campaign:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Campaign {campaign_id} not found"
+        )
+    
+    # Run validation
+    validation_results = campaign_service.validate_campaign_start_prerequisites(campaign)
+    
+    return CampaignValidationResponse(
+        status="success",
+        data=validation_results
+    )
+
 @router.post("/{campaign_id}/start", response_model=CampaignStartResponse)
 async def start_campaign(
     campaign_id: str,
@@ -190,6 +227,59 @@ async def start_campaign(
         status="success",
         data=CampaignResponse.from_campaign(campaign)
     )
+
+@router.post("/{campaign_id}/pause", response_model=CampaignActionResponse)
+async def pause_campaign(
+    campaign_id: str,
+    pause_request: CampaignPauseRequest = CampaignPauseRequest(),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Pause a running campaign"""
+    campaign_service = CampaignService()
+    
+    try:
+        result = await campaign_service.pause_campaign(campaign_id, pause_request.reason, db)
+        
+        return CampaignActionResponse(
+            status="success",
+            message=result["message"],
+            data=result
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error pausing campaign: {str(e)}"
+        )
+
+@router.post("/{campaign_id}/resume", response_model=CampaignActionResponse)
+async def resume_campaign(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Resume a paused campaign"""
+    campaign_service = CampaignService()
+    
+    try:
+        result = await campaign_service.resume_campaign(campaign_id, db)
+        
+        return CampaignActionResponse(
+            status="success",
+            message=result["message"],
+            data=result
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error resuming campaign: {str(e)}"
+        )
 
 @router.get("/{campaign_id}/leads/stats", response_model=CampaignStatsResponse)
 async def get_campaign_lead_stats(

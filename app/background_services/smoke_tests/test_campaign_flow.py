@@ -198,8 +198,8 @@ def wait_for_jobs(token, campaign_id, job_type, expected_count=None, timeout=300
             waited += interval
             continue
 
-        if target and all(j["status"] in ("completed", "failed") for j in target):
-            failed = [j for j in target if j["status"] == "failed"]
+        if target and all(j["status"] in ("COMPLETED", "FAILED") for j in target):
+            failed = [j for j in target if j["status"] == "FAILED"]
             if failed:
                 print(f"[Polling] ERROR: {len(failed)} {job_type} job(s) failed!")
                 for job in failed:

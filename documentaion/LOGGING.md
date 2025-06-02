@@ -15,9 +15,18 @@ This document describes the unified logging system implemented for the FastAPI K
 
 All containerized services use the unified logging system:
 - **API Service** (`api`): FastAPI application logs
-- **Worker Service** (`worker`): Celery worker logs  
+- **Worker Service** (`worker`): Celery worker logs with lifecycle tracking
 - **Flower Service** (`flower`): Celery monitoring logs
 - **Background Services**: Email verification, Apollo, OpenAI, Perplexity, and Instantly API services
+
+### Worker Logging Integration
+
+**Important**: As of the latest update, Celery workers are fully integrated with the centralized logging system. The `app/workers/celery_app.py` file includes:
+
+- **Automatic Logging Initialization**: Workers initialize the centralized logging system on startup
+- **Celery Signal Integration**: Worker lifecycle events (startup, shutdown, task execution) are logged
+- **Task Execution Tracking**: All task starts, completions, and failures are logged with correlation IDs
+- **Centralized Output**: All worker logs now appear in `logs/combined.log` alongside API logs
 
 ### Log Flow Architecture
 

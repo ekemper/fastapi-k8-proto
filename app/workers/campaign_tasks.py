@@ -333,23 +333,36 @@ def enrich_lead_task(self, lead_id: str, campaign_id: str):
                 from app.background_services.openai_service import OpenAIService
                 redis_client = get_redis_connection()
                 openai_rate_limiter = get_openai_rate_limiter(redis_client)
-                openai_service = OpenAIService(rate_limiter=openai_rate_limiter)
+                openai_service = OpenAIService(rate_limiter=openai_rate_limiter, circuit_breaker=circuit_breaker)
                 email_copy_result = openai_service.generate_email_copy(lead, enrichment_result)
                 logger.info(f"Email copy generation result for lead {lead_id}: {email_copy_result}")
                 
-                # Check for rate limiting in response
-                if email_copy_result and email_copy_result.get('status') == 'rate_limited':
-                    circuit_breaker.record_failure(ThirdPartyService.OPENAI, 
-                                                 email_copy_result.get('error', 'Rate limited'), 
-                                                 'rate_limit')
+                # Check for rate limiting or circuit breaker response
+                if email_copy_result and email_copy_result.get('status') in ['rate_limited', 'circuit_breaker_open']:
+                    # For rate limits, the circuit breaker is already handled in the service
+                    # For circuit breaker open, just skip and mark as failed
+                    error_details['email_copy'] = f"OpenAI service unavailable: {email_copy_result.get('error', 'Service unavailable')}"
+                    email_copy_success = False
+                    
+                    # If circuit breaker is open, pause this job
+                    if email_copy_result.get('status') == 'circuit_breaker_open':
+                        enrichment_job.status = JobStatus.PAUSED
+                        enrichment_job.error = f"Paused due to OpenAI circuit breaker: {email_copy_result.get('error')}"
+                        enrichment_job.completed_at = datetime.utcnow()
+                        db.commit()
+                        return {
+                            "lead_id": lead_id,
+                            "job_id": enrichment_job.id,
+                            "status": "paused",
+                            "reason": "OpenAI circuit breaker open"
+                        }
                 else:
-                    circuit_breaker.record_success(ThirdPartyService.OPENAI)
+                    # Normal success handling
+                    email_copy_success = 'error' not in email_copy_result and email_copy_result.get('status') not in ['rate_limited', 'circuit_breaker_open']
                 
                 # Store email copy results
                 lead.email_copy_gen_results = email_copy_result
-                email_copy_success = 'error' not in email_copy_result and email_copy_result.get('status') != 'rate_limited'
             except Exception as e:
-                circuit_breaker.record_failure(ThirdPartyService.OPENAI, str(e), 'exception')
                 error_details['email_copy'] = str(e)
                 logger.error(f"Email copy generation failed for lead {lead_id}: {str(e)}")
                 lead.email_copy_gen_results = {'error': str(e)}

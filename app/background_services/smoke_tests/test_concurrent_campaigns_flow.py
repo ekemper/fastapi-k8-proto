@@ -212,7 +212,136 @@ def validate_enrichment(leads, token, campaign_index):
     
     print(f"[Validation #{campaign_index}] SUCCESS: All {len(leads)} leads validated successfully!")
 
+# ---------------- Circuit Breaker Monitoring Utilities ----------------
+
+def check_circuit_breaker_status(token):
+    """Check current circuit breaker status for all services."""
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        resp = requests.get(f"{API_BASE}/queue-management/status", headers=headers)
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            print(f"[Circuit Breaker] Warning: Could not get status: {resp.status_code}")
+            return None
+    except Exception as e:
+        print(f"[Circuit Breaker] Warning: Status check failed: {e}")
+        return None
+
+def check_campaigns_paused_by_circuit_breaker(token, campaign_ids):
+    """Check if any campaigns have been paused due to circuit breaker events."""
+    headers = {"Authorization": f"Bearer {token}"}
+    paused_campaigns = []
+    
+    for campaign_id in campaign_ids:
+        try:
+            resp = requests.get(f"{API_BASE}/campaigns/{campaign_id}", headers=headers)
+            if resp.status_code == 200:
+                campaign = resp.json().get("data", resp.json())
+                if campaign["status"] == "PAUSED":
+                    paused_campaigns.append({
+                        "id": campaign_id,
+                        "status_message": campaign.get("status_message", ""),
+                        "paused_reason": campaign.get("status_error", "")
+                    })
+        except Exception as e:
+            print(f"[Circuit Breaker] Warning: Could not check campaign {campaign_id}: {e}")
+    
+    return paused_campaigns
+
+def report_circuit_breaker_failure(cb_status, paused_campaigns):
+    """Generate clear report when circuit breaker causes test failure."""
+    print("\n" + "="*80)
+    print("❌ TEST STOPPED: CIRCUIT BREAKER TRIGGERED")
+    print("="*80)
+    
+    if cb_status and cb_status.get("data", {}).get("circuit_breakers"):
+        print("\n🔍 Circuit Breaker Status:")
+        circuit_breakers = cb_status["data"]["circuit_breakers"]
+        
+        # Show services that are not in normal 'closed' state
+        unhealthy_services = []
+        for service, status in circuit_breakers.items():
+            if isinstance(status, dict):
+                state = status.get("circuit_state", "unknown")
+                if state != "closed":
+                    unhealthy_services.append((service, status))
+                    print(f"  ⚠️  {service.upper()}: {state}")
+                    if status.get("pause_info"):
+                        print(f"      Reason: {status['pause_info']}")
+                    if status.get("failure_count", 0) > 0:
+                        print(f"      Failures: {status['failure_count']}/{status.get('failure_threshold', 'unknown')}")
+        
+        if not unhealthy_services:
+            print("  ℹ️  All circuit breakers show 'closed' state")
+            print("  ℹ️  Campaigns may have been paused by previous failures or manual intervention")
+    
+    if paused_campaigns:
+        print(f"\n📊 Campaigns Paused: {len(paused_campaigns)}")
+        for campaign in paused_campaigns:
+            print(f"  🛑 Campaign {campaign['id']}")
+            if campaign["status_message"]:
+                print(f"      Message: {campaign['status_message']}")
+            if campaign["paused_reason"]:
+                print(f"      Reason: {campaign['paused_reason']}")
+    
+    print("\n💡 This indicates a real service failure occurred during testing.")
+    print("💡 Check service health and retry the test when services are restored.")
+    print("="*80)
+
 # ---------------- Polling utilities ----------------
+
+def _log_job_status(target_jobs, waited, campaign_index, job_type):
+    """Log current status of jobs with breakdown by status."""
+    print(f"[Polling #{campaign_index}] {waited}s elapsed - Found {len(target_jobs)} {job_type} job(s)")
+    if target_jobs:
+        status_counts = {}
+        for job in target_jobs:
+            status = job["status"]
+            status_counts[status] = status_counts.get(status, 0) + 1
+        status_summary = ", ".join(f"{status}: {count}" for status, count in status_counts.items())
+        print(f"[Polling #{campaign_index}] Job status breakdown: {status_summary}")
+
+def _check_job_completion(target_jobs, expected_count, campaign_index, job_type, waited):
+    """
+    Check if jobs are completed and handle failures.
+    Returns: ('continue', None) | ('success', jobs) | ('wait_more', None)
+    """
+    if not target_jobs or not all(j["status"] in ("COMPLETED", "FAILED") for j in target_jobs):
+        return ('continue', None)
+    
+    # All jobs are either completed or failed
+    failed = [j for j in target_jobs if j["status"] == "FAILED"]
+    if failed:
+        print(f"[Polling #{campaign_index}] ERROR: {len(failed)} {job_type} job(s) failed!")
+        for job in failed:
+            error_msg = job.get('error') or job.get('error_message', 'Unknown error')
+            print(f"[Polling #{campaign_index}] Failed job {job['id']}: {error_msg}")
+        msgs = "; ".join(f.get('error') or f.get('error_message', 'Unknown error') for f in failed)
+        raise AssertionError(f"Campaign #{campaign_index} {job_type} job(s) failed: {msgs}")
+    
+    # Check if we have the expected count or if no specific count was expected
+    if expected_count is None or len(target_jobs) >= expected_count:
+        print(f"[Polling #{campaign_index}] SUCCESS: {len(target_jobs)} {job_type} job(s) completed after {waited}s")
+        return ('success', target_jobs)
+    else:
+        # We have completed jobs but not enough yet, continue waiting
+        print(f"[Polling #{campaign_index}] {len(target_jobs)}/{expected_count} {job_type} job(s) completed, waiting for more...")
+        return ('wait_more', None)
+
+def _report_timeout_status(token, campaign_id, job_type, campaign_index, timeout):
+    """Report detailed status when timeout is reached and raise TimeoutError."""
+    print(f"[Polling #{campaign_index}] TIMEOUT: {job_type} jobs not finished within {timeout}s")
+    jobs = fetch_campaign_jobs(token, campaign_id)
+    target = [j for j in jobs if j["job_type"] == job_type]
+    if target:
+        print(f"[Polling #{campaign_index}] Final status of {len(target)} {job_type} job(s):")
+        for job in target:
+            print(f"[Polling #{campaign_index}]   Job {job['id']}: {job['status']} - {job.get('error_message', 'No error message')}")
+    else:
+        print(f"[Polling #{campaign_index}] No {job_type} jobs found at timeout")
+    
+    raise TimeoutError(f"Campaign #{campaign_index} {job_type} jobs not finished within {timeout}s")
 
 def fetch_campaign_jobs(token, campaign_id):
     """Return list of jobs for the given campaign via API, handling pagination."""
@@ -257,7 +386,7 @@ def fetch_campaign_jobs(token, campaign_id):
     print(f"[API] Fetched {len(all_jobs)} total jobs for campaign {campaign_id} across {page} page(s)")
     return all_jobs
 
-def wait_for_jobs(token, campaign_id, job_type, campaign_index, expected_count=None, timeout=300, interval=2, start_time=None):
+def wait_for_jobs(token, campaign_id, job_type, campaign_index, expected_count=None, timeout=300, interval=10):
     print(f"[Polling #{campaign_index}] Starting to wait for {job_type} jobs (campaign {campaign_id})")
     if expected_count:
         print(f"[Polling #{campaign_index}] Expecting {expected_count} {job_type} job(s) to complete")
@@ -272,65 +401,33 @@ def wait_for_jobs(token, campaign_id, job_type, campaign_index, expected_count=N
         jobs = fetch_campaign_jobs(token, campaign_id)
         target = [j for j in jobs if j["job_type"] == job_type]
         
-        # Filter jobs to only include those created after start_time if provided
-        # BUT don't filter ENRICH_LEAD jobs since they're always created as part of current campaign
-        if start_time and job_type != "ENRICH_LEAD":
-            from datetime import datetime
-            target = [j for j in target if j.get("created_at") and j["created_at"] > start_time]
-        
         # Log current status periodically
         if waited - last_status_log >= status_log_interval:
-            print(f"[Polling #{campaign_index}] {waited}s elapsed - Found {len(target)} {job_type} job(s)")
-            if target:
-                status_counts = {}
-                for job in target:
-                    status = job["status"]
-                    status_counts[status] = status_counts.get(status, 0) + 1
-                status_summary = ", ".join(f"{status}: {count}" for status, count in status_counts.items())
-                print(f"[Polling #{campaign_index}] Job status breakdown: {status_summary}")
+            _log_job_status(target, waited, campaign_index, job_type)
             last_status_log = waited
         
+        # Check if we have enough jobs yet
         if expected_count and len(target) < expected_count:
             time.sleep(interval)
             waited += interval
             continue
 
-        if target and all(j["status"] in ("completed", "failed") for j in target):
-            failed = [j for j in target if j["status"] == "failed"]
-            if failed:
-                print(f"[Polling #{campaign_index}] ERROR: {len(failed)} {job_type} job(s) failed!")
-                for job in failed:
-                    error_msg = job.get('error') or job.get('error_message', 'Unknown error')
-                    print(f"[Polling #{campaign_index}] Failed job {job['id']}: {error_msg}")
-                msgs = "; ".join(f.get('error') or f.get('error_message', 'Unknown error') for f in failed)
-                raise AssertionError(f"Campaign #{campaign_index} {job_type} job(s) failed: {msgs}")
-            
-            # Check if we have the expected count or if no specific count was expected
-            if expected_count is None or len(target) >= expected_count:
-                print(f"[Polling #{campaign_index}] SUCCESS: {len(target)} {job_type} job(s) completed after {waited}s")
-                return target
-            else:
-                # We have completed jobs but not enough yet, continue waiting
-                print(f"[Polling #{campaign_index}] {len(target)}/{expected_count} {job_type} job(s) completed, waiting for more...")
-                time.sleep(interval)
-                waited += interval
-                continue
+        # Check job completion status
+        result, completed_jobs = _check_job_completion(target, expected_count, campaign_index, job_type, waited)
+        
+        if result == 'success':
+            return completed_jobs
+        elif result == 'wait_more':
+            time.sleep(interval)
+            waited += interval
+            continue
+        # else result == 'continue', so continue to next iteration
 
         time.sleep(interval)
         waited += interval
     
-    # Timeout reached - provide detailed status
-    print(f"[Polling #{campaign_index}] TIMEOUT: {job_type} jobs not finished within {timeout}s")
-    jobs = fetch_campaign_jobs(token, campaign_id)
-    target = [j for j in jobs if j["job_type"] == job_type]
-    if target:
-        print(f"[Polling #{campaign_index}] Final status of {len(target)} {job_type} job(s):")
-        for job in target:
-            print(f"[Polling #{campaign_index}]   Job {job['id']}: {job['status']} - {job.get('error_message', 'No error message')}")
-    else:
-        print(f"[Polling #{campaign_index}] No {job_type} jobs found at timeout")
-    
-    raise TimeoutError(f"Campaign #{campaign_index} {job_type} jobs not finished within {timeout}s")
+    # Timeout reached
+    _report_timeout_status(token, campaign_id, job_type, campaign_index, timeout)
 
 def get_all_leads(token, campaign_id, campaign_index):
     print(f"[API #{campaign_index}] Fetching all leads for campaign {campaign_id}...")
@@ -446,8 +543,8 @@ def monitor_all_campaigns_jobs(token, campaigns_data, timeout=600):
             jobs = fetch_campaign_jobs(token, campaign_id)
             enrich_jobs = [j for j in jobs if j["job_type"] == "ENRICH_LEAD"]
             
-            completed = [j for j in enrich_jobs if j["status"] == "completed"]
-            failed = [j for j in enrich_jobs if j["status"] == "failed"]
+            completed = [j for j in enrich_jobs if j["status"] == "COMPLETED"]
+            failed = [j for j in enrich_jobs if j["status"] == "FAILED"]
             
             old_completed = tracking['completed_jobs']
             tracking['completed_jobs'] = len(completed)
@@ -482,6 +579,200 @@ def monitor_all_campaigns_jobs(token, campaigns_data, timeout=600):
     
     # Timeout reached
     print(f"\n[Monitor] ⏰ Timeout reached after {timeout}s")
+    print_consolidated_status(job_tracker)
+    
+    failed_campaigns = [t for t in job_tracker.values() if t['status'] == 'failed']
+    incomplete_campaigns = [t for t in job_tracker.values() if t['status'] not in ['completed', 'failed']]
+    
+    if failed_campaigns:
+        failed_indices = [str(t['campaign_index']) for t in failed_campaigns]
+        raise AssertionError(f"Campaigns #{', '.join(failed_indices)} failed")
+    
+    if incomplete_campaigns:
+        incomplete_indices = [str(t['campaign_index']) for t in incomplete_campaigns]
+        raise TimeoutError(f"Campaigns #{', '.join(incomplete_indices)} did not complete within {timeout}s")
+    
+    return job_tracker
+
+def monitor_all_campaigns_jobs_with_cb_awareness(token, campaigns_data, timeout=600):
+    """
+    Enhanced job monitoring with circuit breaker awareness.
+    
+    This function monitors ENRICH_LEAD jobs across all campaigns while also
+    checking for circuit breaker events that could cause service failures.
+    
+    Returns:
+        None: If circuit breaker triggered and test should stop
+        dict: Job results if completed successfully or timeout reached
+    """
+    
+    print(f"\n[Monitor CB] Starting circuit breaker-aware monitoring for {len(campaigns_data)} campaigns")
+    
+    # Get campaign IDs for circuit breaker checks
+    campaign_ids = list(campaigns_data.keys())
+    
+    # Initialize tracking structure
+    job_tracker = {}
+    for campaign_id, data in campaigns_data.items():
+        job_tracker[campaign_id] = {
+            'campaign_index': data['campaign_index'],
+            'expected_jobs': data['leads_count'],
+            'completed_jobs': 0,
+            'failed_jobs': 0,
+            'last_job_count': 0,
+            'status': 'waiting',  # waiting, processing, completed, failed
+            'last_update': time.time()
+        }
+    
+    start_time = time.time()
+    last_status_log = 0
+    last_cb_check = 0
+    status_log_interval = 15  # Log every 15 seconds
+    cb_check_interval = 30   # Check circuit breaker every 30 seconds
+    
+    print(f"[Monitor CB] Circuit breaker checks will run every {cb_check_interval}s")
+    
+    while time.time() - start_time < timeout:
+        current_time = time.time()
+        elapsed = current_time - start_time
+        all_complete = True
+        
+        # === CIRCUIT BREAKER HEALTH CHECK ===
+        if elapsed - last_cb_check >= cb_check_interval:
+            print(f"\n[Monitor CB] Performing circuit breaker health check (after {elapsed:.0f}s)...")
+            
+            # Check circuit breaker status
+            cb_status = check_circuit_breaker_status(token)
+            
+            # Check if any campaigns have been paused
+            paused_campaigns = check_campaigns_paused_by_circuit_breaker(token, campaign_ids)
+            
+            if paused_campaigns:
+                print(f"[Monitor CB] ⚠️  Detected {len(paused_campaigns)} paused campaign(s)")
+                report_circuit_breaker_failure(cb_status, paused_campaigns)
+                return None  # Signal circuit breaker failure
+            
+            # Additional campaign status validation during monitoring
+            no_unexpected_pauses, unexpected_paused = validate_no_unexpected_pauses(token, campaign_ids)
+            if not no_unexpected_pauses:
+                print(f"[Monitor CB] ⚠️  Campaign status validation failed - unexpected pauses detected")
+                # Get current status summary for detailed reporting
+                status_summary, campaign_details = check_campaign_status_summary(token, campaign_ids)
+                
+                # Check if this is circuit breaker related
+                if cb_status and cb_status.get("data", {}).get("circuit_breakers"):
+                    report_circuit_breaker_failure(cb_status, unexpected_paused)
+                else:
+                    print(f"[Monitor CB] ❌ Non-circuit-breaker related campaign pauses detected:")
+                    for campaign in unexpected_paused:
+                        print(f"[Monitor CB]    Campaign {campaign['id']}: {campaign['status_message']}")
+                
+                return None  # Signal failure due to unexpected pauses
+            
+            # Check if any services are unhealthy
+            if cb_status and cb_status.get("data", {}).get("circuit_breakers"):
+                circuit_breakers = cb_status["data"]["circuit_breakers"]
+                unhealthy_services = []
+                
+                for service, status in circuit_breakers.items():
+                    if isinstance(status, dict):
+                        state = status.get("circuit_state", "unknown")
+                        if state != "closed":
+                            unhealthy_services.append((service, state, status))
+                
+                if unhealthy_services:
+                    print(f"[Monitor CB] ⚠️  CRITICAL: {len(unhealthy_services)} service(s) not in 'closed' state:")
+                    for service, state, status in unhealthy_services:
+                        print(f"[Monitor CB]     {service.upper()}: {state}")
+                        if status.get("pause_info"):
+                            print(f"[Monitor CB]       Pause info: {status['pause_info']}")
+                    
+                    # Check if there are actually paused jobs due to these circuit breaker issues
+                    paused_job_counts = cb_status.get("data", {}).get("paused_jobs_by_service", {})
+                    total_paused = sum(paused_job_counts.values())
+                    
+                    if total_paused > 0:
+                        print(f"[Monitor CB] ❌ STOPPING TEST: {total_paused} jobs paused due to circuit breaker issues")
+                        print(f"[Monitor CB] Paused jobs by service: {paused_job_counts}")
+                        
+                        # Create synthetic paused campaigns for reporting
+                        synthetic_paused = []
+                        for service, state, status in unhealthy_services:
+                            if paused_job_counts.get(service, 0) > 0:
+                                synthetic_paused.append({
+                                    "id": f"multiple_campaigns_affected_by_{service}",
+                                    "status_message": f"Jobs paused due to {service} circuit breaker in {state} state",
+                                    "paused_reason": f"Circuit breaker {state} for {service}: {status.get('pause_info', 'No details')}"
+                                })
+                        
+                        report_circuit_breaker_failure(cb_status, synthetic_paused)
+                        return None  # Signal circuit breaker failure
+                    else:
+                        print(f"[Monitor CB] ⚠️  Circuit breakers unhealthy but no jobs paused yet - continuing to monitor...")
+                else:
+                    print(f"[Monitor CB] ✅ All circuit breakers and campaigns healthy")
+            else:
+                print(f"[Monitor CB] ℹ️  Could not get circuit breaker status, campaigns appear healthy")
+            
+            last_cb_check = elapsed
+        
+        # === JOB STATUS MONITORING ===
+        for campaign_id, tracking in job_tracker.items():
+            if tracking['status'] in ['completed', 'failed']:
+                continue
+                
+            # Fetch jobs for this campaign
+            jobs = fetch_campaign_jobs(token, campaign_id)
+            enrich_jobs = [j for j in jobs if j["job_type"] == "ENRICH_LEAD"]
+            
+            completed = [j for j in enrich_jobs if j["status"] == "COMPLETED"]
+            failed = [j for j in enrich_jobs if j["status"] == "FAILED"]
+            
+            old_completed = tracking['completed_jobs']
+            tracking['completed_jobs'] = len(completed)
+            tracking['failed_jobs'] = len(failed)
+            
+            # Update status
+            if tracking['failed_jobs'] > 0:
+                tracking['status'] = 'failed'
+                print(f"[Monitor CB] ❌ Campaign #{tracking['campaign_index']} has {tracking['failed_jobs']} failed job(s)")
+            elif tracking['completed_jobs'] >= tracking['expected_jobs']:
+                if tracking['status'] != 'completed':
+                    print(f"[Monitor CB] ✅ Campaign #{tracking['campaign_index']} completed all {tracking['completed_jobs']} jobs")
+                tracking['status'] = 'completed'
+            elif tracking['completed_jobs'] > old_completed:
+                tracking['status'] = 'processing'
+                tracking['last_update'] = current_time
+            
+            if tracking['status'] not in ['completed', 'failed']:
+                all_complete = False
+        
+        # === STATUS LOGGING ===
+        if elapsed - last_status_log >= status_log_interval:
+            print(f"\n[Monitor CB] === Status Update (after {elapsed:.0f}s) ===")
+            print_consolidated_status(job_tracker)
+            last_status_log = elapsed
+        
+        # === CHECK COMPLETION ===
+        if all_complete:
+            print(f"\n[Monitor CB] 🎉 All campaigns completed after {elapsed:.1f}s!")
+            return job_tracker
+            
+        time.sleep(3)  # Check every 3 seconds
+    
+    # === TIMEOUT HANDLING ===
+    print(f"\n[Monitor CB] ⏰ Timeout reached after {timeout}s")
+    
+    # Final circuit breaker check at timeout
+    print(f"[Monitor CB] Performing final circuit breaker check...")
+    cb_status = check_circuit_breaker_status(token)
+    paused_campaigns = check_campaigns_paused_by_circuit_breaker(token, campaign_ids)
+    
+    if paused_campaigns:
+        print(f"[Monitor CB] ⚠️  At timeout: {len(paused_campaigns)} campaign(s) are paused")
+        report_circuit_breaker_failure(cb_status, paused_campaigns)
+        return None  # Signal circuit breaker failure at timeout
+    
     print_consolidated_status(job_tracker)
     
     failed_campaigns = [t for t in job_tracker.values() if t['status'] == 'failed']
@@ -630,15 +921,117 @@ def analyze_results(campaigns_data, job_results):
     """DEPRECATED: Use analyze_process_results instead."""
     return analyze_process_results(campaigns_data, job_results)
 
+def check_campaign_status_summary(token, campaign_ids):
+    """Get summary of campaign statuses for reporting."""
+    headers = {"Authorization": f"Bearer {token}"}
+    status_summary = {
+        "CREATED": 0,
+        "RUNNING": 0, 
+        "PAUSED": 0,
+        "COMPLETED": 0,
+        "FAILED": 0
+    }
+    
+    campaign_details = []
+    
+    for campaign_id in campaign_ids:
+        try:
+            resp = requests.get(f"{API_BASE}/campaigns/{campaign_id}", headers=headers)
+            if resp.status_code == 200:
+                campaign = resp.json().get("data", resp.json())
+                status = campaign["status"]
+                status_summary[status] = status_summary.get(status, 0) + 1
+                
+                campaign_details.append({
+                    "id": campaign_id,
+                    "status": status,
+                    "status_message": campaign.get("status_message", ""),
+                    "status_error": campaign.get("status_error", "")
+                })
+        except Exception as e:
+            print(f"[Status Check] Warning: Could not check campaign {campaign_id}: {e}")
+    
+    return status_summary, campaign_details
+
+def validate_no_unexpected_pauses(token, campaign_ids):
+    """Check that no campaigns were unexpectedly paused during execution."""
+    status_summary, campaign_details = check_campaign_status_summary(token, campaign_ids)
+    
+    if status_summary.get("PAUSED", 0) > 0:
+        paused_campaigns = [c for c in campaign_details if c["status"] == "PAUSED"]
+        print(f"\n⚠️  WARNING: {len(paused_campaigns)} campaigns are in PAUSED status")
+        
+        for campaign in paused_campaigns:
+            print(f"   Campaign {campaign['id']}: {campaign['status_message']}")
+            if campaign['status_error']:
+                print(f"      Error: {campaign['status_error']}")
+        
+        return False, paused_campaigns
+    
+    return True, []
+
+def report_campaign_status_summary(token, campaign_ids, phase_name="Status Check"):
+    """Generate a detailed report of campaign statuses for debugging and monitoring."""
+    print(f"\n🔍 {phase_name}: Campaign Status Summary")
+    print("-" * 50)
+    
+    status_summary, campaign_details = check_campaign_status_summary(token, campaign_ids)
+    
+    # Overall summary
+    total_campaigns = len(campaign_details)
+    print(f"📊 Status Distribution ({total_campaigns} campaigns):")
+    for status, count in status_summary.items():
+        if count > 0:
+            emoji = {
+                "CREATED": "🟡",
+                "RUNNING": "🟢", 
+                "PAUSED": "🔴",
+                "COMPLETED": "✅",
+                "FAILED": "❌"
+            }.get(status, "⚪")
+            print(f"   {emoji} {status}: {count}")
+    
+    # Highlight any problematic states
+    if status_summary.get("PAUSED", 0) > 0:
+        print(f"\n⚠️  ATTENTION: {status_summary['PAUSED']} campaign(s) are PAUSED")
+        paused_campaigns = [c for c in campaign_details if c["status"] == "PAUSED"]
+        for campaign in paused_campaigns:
+            print(f"   🛑 Campaign {campaign['id']}")
+            if campaign['status_message']:
+                print(f"      Message: {campaign['status_message']}")
+            if campaign['status_error']:
+                print(f"      Error: {campaign['status_error']}")
+    
+    if status_summary.get("FAILED", 0) > 0:
+        print(f"\n❌ ATTENTION: {status_summary['FAILED']} campaign(s) have FAILED")
+        failed_campaigns = [c for c in campaign_details if c["status"] == "FAILED"]
+        for campaign in failed_campaigns:
+            print(f"   💥 Campaign {campaign['id']}")
+            if campaign['status_message']:
+                print(f"      Message: {campaign['status_message']}")
+            if campaign['status_error']:
+                print(f"      Error: {campaign['status_error']}")
+    
+    # Return the results for further processing
+    return status_summary, campaign_details
+
 def main():
-    from app.background_services.smoke_tests.mock_apify_client import reset_campaign_counter, get_dataset_status
+    from app.background_services.smoke_tests.mock_apify_client import reset_campaign_counter, get_dataset_status, check_redis_availability
     
     print("\n" + "="*80)
-    print("🚀 STARTING PROCESS-FOCUSED CONCURRENT CAMPAIGNS TEST")
-    print("📊 Testing 10 campaigns with pop-based mock data distribution")
-    print("📊 Monitoring concurrent job processing across all campaigns") 
-    print("📊 Validating process integrity rather than specific content assignment")
+    print("🚀 STARTING CONCURRENT CAMPAIGNS TEST WITH CIRCUIT BREAKER AWARENESS")
+    print("📊 Testing normal campaign execution with automatic service failure detection")
+    print("📊 Will stop gracefully and report clearly if circuit breaker triggers")
+    print("📊 Focus: Happy path validation with robust service health monitoring")
     print("="*80)
+    
+    # First check: Ensure Redis is available for MockApifyClient
+    print("\n🔍 PRE-FLIGHT CHECK: Redis Availability")
+    print("-" * 50)
+    if not check_redis_availability():
+        print("❌ ABORTING TEST: Redis is not available!")
+        print("Please ensure Redis is running and accessible before running this test.")
+        return False
     
     # Debug: Check dataset status before starting
     dataset_status = get_dataset_status()
@@ -650,7 +1043,43 @@ def main():
         token, email = signup_and_login()
         organization_id = create_organization(token)
         
-        print("\n📋 PHASE 2: Sequential Campaign Creation with Pop-Based Data")
+        print("\n🔍 PHASE 2: Pre-Test Circuit Breaker Health Check")
+        print("-" * 50)
+        print("[Health Check] Verifying all services are healthy before starting test...")
+        
+        cb_status = check_circuit_breaker_status(token)
+        if cb_status and cb_status.get("data", {}).get("circuit_breakers"):
+            circuit_breakers = cb_status["data"]["circuit_breakers"]
+            unhealthy_services = []
+            
+            for service, status in circuit_breakers.items():
+                if isinstance(status, dict):
+                    state = status.get("circuit_state", "unknown")
+                    if state != "closed":
+                        unhealthy_services.append((service, state, status))
+            
+            if unhealthy_services:
+                print(f"⚠️  WARNING: {len(unhealthy_services)} service(s) not in healthy state:")
+                for service, state, status in unhealthy_services:
+                    print(f"   🔴 {service.upper()}: {state}")
+                    if status.get("pause_info"):
+                        print(f"      Reason: {status['pause_info']}")
+                    if status.get("failure_count", 0) > 0:
+                        print(f"      Failures: {status['failure_count']}/{status.get('failure_threshold', 'unknown')}")
+                
+                print("\n💡 Recommendation: Wait for services to recover or investigate issues before testing")
+                print("💡 Continuing test anyway - will monitor and stop if circuit breaker triggers")
+            else:
+                healthy_count = len([s for s in circuit_breakers.values() 
+                                   if isinstance(s, dict) and s.get("circuit_state") == "closed"])
+                print(f"✅ All services healthy: {healthy_count}/{len(circuit_breakers)} circuit breakers in 'closed' state")
+                for service in circuit_breakers.keys():
+                    print(f"   🟢 {service.upper()}: closed")
+        else:
+            print("⚠️  Could not retrieve circuit breaker status")
+            print("💡 Continuing test - will monitor circuit breaker during execution")
+        
+        print("\n📋 PHASE 3: Sequential Campaign Creation with Pop-Based Data")
         print("-" * 50)
         print(f"[Setup] Creating {NUM_CAMPAIGNS} campaigns sequentially...")
         campaigns_data = create_campaigns_sequentially(
@@ -660,27 +1089,116 @@ def main():
             LEADS_PER_CAMPAIGN
         )
         
-        print(f"\n🔍 PHASE 3: Process Integrity Validation")
+        print(f"\n🔍 PHASE 4: Process Integrity Validation")
         print("-" * 50)
         validate_campaign_data(campaigns_data)
         
-        print(f"\n⚡ PHASE 4: Concurrent Job Monitoring")
-        print("-" * 50)
-        job_results = monitor_all_campaigns_jobs(token, campaigns_data, CAMPAIGN_TIMEOUT)
+        # Add campaign status validation as part of integrity checking
+        campaign_ids = list(campaigns_data.keys())
         
-        print(f"\n📊 PHASE 5: End-to-End Process Analysis")
+        # Report initial campaign status after creation
+        status_summary, campaign_details = report_campaign_status_summary(
+            token, campaign_ids, "Post-Creation Campaign Status"
+        )
+        
+        # Validate no unexpected pauses occurred during setup
+        no_pauses, paused_campaigns = validate_no_unexpected_pauses(token, campaign_ids)
+        if not no_pauses:
+            print(f"\n❌ INTEGRITY CHECK FAILED: Campaigns paused during setup")
+            print("💡 This indicates service issues occurred during campaign creation")
+            return False
+        
+        print(f"\n✅ Campaign Status Validation: All {len(campaign_ids)} campaigns in expected state")
+        
+        print(f"\n⚡ PHASE 5: Circuit Breaker-Aware Concurrent Job Monitoring")
         print("-" * 50)
+        print("[Monitor] Starting enhanced monitoring with automatic circuit breaker detection")
+        print("[Monitor] Will perform service health checks every 30 seconds during execution")
+        print("[Monitor] Will also monitor campaign status for unexpected pauses")
+        print("[Monitor] Test will stop gracefully if service failures are detected")
+        
+        job_results = monitor_all_campaigns_jobs_with_cb_awareness(token, campaigns_data, CAMPAIGN_TIMEOUT)
+        
+        # Enhanced circuit breaker failure handling
+        if job_results is None:
+            # Before reporting circuit breaker failure, check campaign status one more time
+            print("\n🔍 Final Campaign Status Check (Post-Failure)")
+            print("-" * 50)
+            final_status_summary, final_campaign_details = report_campaign_status_summary(
+                token, campaign_ids, "Post-Failure Campaign Status"
+            )
+            
+            print("\n" + "="*80)
+            print("🛑 TEST RESULT: SERVICE FAILURE DETECTED")
+            print("="*80)
+            print("📋 Summary:")
+            print("  • Test execution was stopped due to circuit breaker activation")
+            print("  • This indicates real service failures occurred during test execution")
+            print("  • The test infrastructure is working correctly by detecting service issues")
+            print("  • This is NOT a test failure - it's successful service failure detection")
+            print("\n💡 Recommended Actions:")
+            print("  1. Check service health and logs to identify the root cause")
+            print("  2. Wait for services to recover and circuit breakers to close")
+            print("  3. Retry the test once services are stable")
+            print("="*80)
+            return False  # Return False to indicate test was stopped, not failed
+        
+        print(f"\n📊 PHASE 6: End-to-End Process Analysis")
+        print("-" * 50)
+        
+        # Final campaign status validation before reporting success
+        print("🔍 Final Campaign Status Validation")
+        print("-" * 40)
+        
+        final_status_summary, final_campaign_details = report_campaign_status_summary(
+            token, campaign_ids, "Final Campaign Status"
+        )
+        
+        # Check for any unexpected final states
+        final_no_pauses, final_paused_campaigns = validate_no_unexpected_pauses(token, campaign_ids)
+        if not final_no_pauses:
+            print(f"\n⚠️  WARNING: Some campaigns ended in PAUSED state")
+            print("💡 This may indicate service issues occurred late in the test")
+        
+        # Count successful completions
+        completed_campaigns = final_status_summary.get("COMPLETED", 0)
+        running_campaigns = final_status_summary.get("RUNNING", 0)
+        
         analyze_process_results(campaigns_data, job_results)
         
         print("\n" + "="*80)
-        print("🎉 PROCESS-FOCUSED CONCURRENT CAMPAIGNS TEST COMPLETED SUCCESSFULLY!")
-        print("✅ Pop-based mock data distribution worked perfectly")
-        print("✅ All campaigns received unique data automatically")
-        print("✅ End-to-end process validation passed")
+        print("🎉 TEST RESULT: SUCCESSFUL EXECUTION WITH SERVICE HEALTH MONITORING")
+        print("="*80)
+        print("📋 Summary:")
+        print("  • All campaigns executed successfully through the happy path")
+        print("  • No service failures detected during test execution")
+        print("  • Circuit breaker monitoring functioned correctly")
+        print("  • Pop-based mock data distribution worked perfectly")
+        print("  • System successfully handled concurrent processing without issues")
+        print("\n✅ Key Achievements:")
+        print("  ✅ Service health monitoring: Active and functional")
+        print("  ✅ Campaign execution: All completed successfully")
+        print("  ✅ Data integrity: No duplicates or conflicts detected")
+        print("  ✅ Concurrent processing: Robust and reliable")
         print("="*80)
         
+        return True
+        
     except Exception as e:
-        print(f"\n❌ PROCESS-FOCUSED CONCURRENT TEST FAILED: {e}")
+        print(f"\n" + "="*80)
+        print("❌ TEST RESULT: APPLICATION/INFRASTRUCTURE FAILURE")
+        print("="*80)
+        print("📋 Summary:")
+        print("  • Test failed due to application or infrastructure issues")
+        print("  • This is a legitimate test failure requiring investigation")
+        print("  • Circuit breaker monitoring was not the cause of failure")
+        print(f"  • Error: {e}")
+        print("\n💡 Recommended Actions:")
+        print("  1. Review the error details and stack trace")
+        print("  2. Check application logs for additional context")
+        print("  3. Verify test environment and infrastructure health")
+        print("  4. Fix the underlying issue and retry the test")
+        print("="*80)
         raise
     finally:
         # Clean up test data

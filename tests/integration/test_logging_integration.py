@@ -129,7 +129,7 @@ class TestWorkerServiceLogging:
             self.logger.info("Task completed", extra={
                 "task_id": task_id,
                 "component": "worker",
-                "status": "completed"
+                "status": "COMPLETED"
             })
             success = True
         except Exception:
@@ -279,7 +279,7 @@ class TestCrossServiceLogCorrelation:
                 "transaction_id": transaction_id,
                 "component": "worker",
                 "processor": "stripe",
-                "status": "pending"
+                "status": "PENDING"
             })
             
             # Worker: Payment completed

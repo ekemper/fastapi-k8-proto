@@ -6,12 +6,12 @@ import enum
 from app.core.database import Base
 
 class JobStatus(str, enum.Enum):
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    PAUSED = "paused"
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+    PAUSED = "PAUSED"
 
 class JobType(str, enum.Enum):
     """Campaign-specific job types for different operations."""

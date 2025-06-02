@@ -93,7 +93,9 @@ class Settings(BaseSettings):
     INSTANTLY_RATE_LIMIT_PERIOD: int = 60
     
     # OpenAI API Rate Limits
-    OPENAI_RATE_LIMIT_REQUESTS: int = 60
+    # Reduced from 60 to 15 requests per minute to stay within OpenAI's 10,000 TPM limit
+    # With average ~500 tokens per request, 15 requests ≈ 7,500 tokens, leaving safety margin
+    OPENAI_RATE_LIMIT_REQUESTS: int = 15
     OPENAI_RATE_LIMIT_PERIOD: int = 60
     
     # Perplexity API Rate Limits

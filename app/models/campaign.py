@@ -40,7 +40,8 @@ class Campaign(Base):
     # Define valid status transitions
     VALID_TRANSITIONS = {
         CampaignStatus.CREATED: [CampaignStatus.RUNNING, CampaignStatus.FAILED],
-        CampaignStatus.RUNNING: [CampaignStatus.COMPLETED, CampaignStatus.FAILED],
+        CampaignStatus.RUNNING: [CampaignStatus.PAUSED, CampaignStatus.COMPLETED, CampaignStatus.FAILED],
+        CampaignStatus.PAUSED: [CampaignStatus.RUNNING, CampaignStatus.FAILED],  # Can resume or fail
         CampaignStatus.COMPLETED: [],
         CampaignStatus.FAILED: []
     }
@@ -85,6 +86,52 @@ class Campaign(Base):
     def get_valid_transitions(self) -> List[CampaignStatus]:
         """Get list of valid status transitions from current status."""
         return self.VALID_TRANSITIONS.get(self.status, [])
+
+    def pause(self, reason: str = None) -> bool:
+        """
+        Pause a running campaign.
+        Returns True if pause was successful, False if transition is invalid.
+        """
+        if self.status != CampaignStatus.RUNNING:
+            return False
+        
+        return self.update_status(
+            CampaignStatus.PAUSED,
+            status_message=f"Campaign paused: {reason}" if reason else "Campaign paused",
+            status_error=reason if reason else None
+        )
+
+    def resume(self, message: str = None) -> bool:
+        """
+        Resume a paused campaign.
+        Returns True if resume was successful, False if transition is invalid.
+        """
+        if self.status != CampaignStatus.PAUSED:
+            return False
+        
+        return self.update_status(
+            CampaignStatus.RUNNING,
+            status_message=message or "Campaign resumed",
+            status_error=None  # Clear any pause-related errors
+        )
+
+    def can_be_started(self) -> tuple[bool, str]:
+        """
+        Check if campaign can be started.
+        Returns (can_start, reason).
+        """
+        if self.status == CampaignStatus.PAUSED:
+            return False, "Cannot start paused campaign - resume it first"
+        elif self.status == CampaignStatus.RUNNING:
+            return False, "Campaign is already running"
+        elif self.status == CampaignStatus.COMPLETED:
+            return False, "Cannot start completed campaign"
+        elif self.status == CampaignStatus.FAILED:
+            return False, "Cannot start failed campaign"
+        elif self.status == CampaignStatus.CREATED:
+            return True, "Campaign can be started"
+        else:
+            return False, f"Unknown campaign status: {self.status}"
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert campaign to dictionary for serialization."""

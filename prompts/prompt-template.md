@@ -1,9 +1,7 @@
 
 
 
-# Your job is to create an extreamly detailed set of step by step instructions for an ai agent to perform the following task:
-
-<One sentence describing the task>
+# Your job is to create an extreamly detailed set of step by step instructions for an ai agent to perform this task.
 
 
 ## In creating the plan, the following rules must be observed and followed:
@@ -48,6 +46,12 @@
     * DO NOT create or modify or otherwise fuck with the env files. 
 
     * if there are configuration values that need to be updated or modified, you can ask the user to add or change something
+
+    * if there is a script or command that will need a connection to postgres or redis, the command or script should be run in the api socker container
+
+    * before creating a command that uses a container name, please run `docker ps` to get the correct name
+
+    * never use the depricated `docker-compose` command version. always use the newer `docker compose` command version.
 
     * For the plan you create, please create a md document in the root of the project and put the instructions there for safe keeping
 
